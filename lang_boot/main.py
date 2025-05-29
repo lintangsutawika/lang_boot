@@ -146,11 +146,14 @@ def main(args):
             preference_data_path,
             )
 
+
+        save_path = os.path.join(args.save_model_path, f"{iteration}_model/")
+        ckpt_path = os.path.join(f"{args.save_model_path}", "ckpt/")
         # DPO Training
         training_command = [
             "deepspeed", "--module", "openrlhf.cli.train_dpo",
-            "--save_path", f"{args.save_model_path}/{iteration}_model/",
-            "--ckpt_path", f"{args.save_model_path}/ckpt/",
+            "--save_path", save_path,
+            "--ckpt_path", ckpt_path,
             "--save_steps", "-1",
             "--logging_steps", "1",
             "--eval_steps", "-1",
@@ -177,7 +180,7 @@ def main(args):
             "--adam_offload", "--use_liger_kernel", "--packing_samples"
         ]
         subprocess.run(training_command, check=True)
-        model_name = f"{args.save_model_path}/{iteration}_model/"
+        model_name = save_path
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute DPO training pipeline.")
