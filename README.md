@@ -5,6 +5,7 @@ Bootstrapping language model capability in non-English languages
 
 ## Training
 
+```
 python -m lang_boot.main \
     --task_name open_r1_math_220k \
     --model_name Qwen/Qwen2.5-7B-Instruct \
@@ -17,3 +18,4 @@ python -m lang_boot.main \
     --save_model_path model_ckpt/ \
     --n_samples 4000 \
     --serve
+```
