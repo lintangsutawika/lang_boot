@@ -15,12 +15,12 @@ from .construct import construct_preference
 
 reasoning_prompt_list = [
     "_".join([prompt, order]) for prompt in [
-    # "eng_reason_A_box",
+    "eng_reason_A_box",
     "eng_reason_in_{}_A_box",
     "{}_reason_A_box"
     ] for order in [
         "before",
-        # "after",
+        "after",
         ]
 ]
 
@@ -33,10 +33,24 @@ def main(args):
     if args.task_path is not None:
         import_modules(args.task_path)
 
+    # Check if the model checkpoint exists and not empty
+    print(f"Checking current iteration")
     for iteration in range(args.max_iterations):
+        model_checkpoint = os.path.join(args.save_model_path, f"{iteration}_model")
+        if not os.path.exists(model_checkpoint) or not os.listdir(model_checkpoint):
+            print(f"Continuing from iteration {iteration}")
+            current_iteration = iteration
+            break
+
+    for iteration in range(args.max_iterations):
+
+        if iteration < current_iteration:
+            continue
 
         if iteration == 0:
             model_name = args.model_name
+        else:
+            model_name = f"{args.save_model_path}/{iteration}_model/"
 
         # Deploy VLLM Here
         if args.serve:
@@ -57,7 +71,7 @@ def main(args):
             max_rps=args.max_rps,
             )
 
-        for prompt in reasoning_prompt_list:
+        for idx, prompt in enumerate(reasoning_prompt_list):
             prompt_modifier = prompt.format(args.lang)
             print(f"Running task: {args.task_name} with prompt: {prompt_modifier}")
             base_run_name = f"{iteration}:{args.lang}:{args.task_name}:{prompt_modifier}"
@@ -81,6 +95,10 @@ def main(args):
                         **task_kwargs,
                         )
                 else:
+
+                    # Only need to run translate once
+                    if idx > 0:
+                        break
 
                     if query == "translate":
                         task_name = "{}_translate".format(args.lang)
@@ -117,52 +135,56 @@ def main(args):
         if args.serve:
             model_server.stop(process)
 
+        preference_data_path = os.path.join(
+            args.output_path,
+            f"{iteration}:preference_data:{args.lang}:{args.task_name}"
+            )
+
         # Construct Data
         construct_preference(
             iteration, args.lang, args.task_name, args.output_path,
-            os.path.join(args.output_path, f"{iteration}:preference_data:{args.lang}:{args.task_name}"),
+            preference_data_path,
             )
 
-        # # DPO Training
-        # training_command = [
-        #     "deepspeed", "--module", "openrlhf.cli.train_dpo",
-        #     "--save_path", f"{output_path}/model/",
-        #     "--save_steps", "-1",
-        #     "--logging_steps", "1",
-        #     "--eval_steps", "-1",
-        #     "--train_batch_size", "64",
-        #     "--micro_train_batch_size", "2",
-        #     "--pretrain", args.model_checkpoint,
-        #     "--save_hf_ckpt",
-        #     "--bf16",
-        #     "--max_samples", "6400",
-        #     "--train_split", "train",
-        #     "--eval_split", "test",
-        #     "--max_epochs", "1",
-        #     "--max_len", "2048",
-        #     "--zero_stage", "3",
-        #     "--ref_offload",
-        #     "--learning_rate", "3e-7",
-        #     "--l2", "0.05",
-        #     "--beta", "0.05",
-        #     "--dataset", f"json@{output_path}/data/",
-        #     "--apply_chat_template",
-        #     "--prompt_key", "question",
-        #     "--chosen_key", "response_i",
-        #     "--rejected_key", "response_j",
-        #     "--flash_attn",
-        #     "--gradient_checkpointing",
-        #     "--adam_offload", "--use_liger_kernel", "--packing_samples"
-        # ]
-        # subprocess.run(training_command, check=True)
-        # model_name = f"{output_path}/model/"
+        # DPO Training
+        training_command = [
+            "deepspeed", "--module", "openrlhf.cli.train_dpo",
+            "--save_path", f"{args.save_model_path}/{iteration}_model/",
+            "--ckpt_path", f"{args.save_model_path}/ckpt/",
+            "--save_steps", "-1",
+            "--logging_steps", "1",
+            "--eval_steps", "-1",
+            "--train_batch_size", "64",
+            "--micro_train_batch_size", "4",
+            "--pretrain", model_name,
+            "--save_hf_ckpt",
+            "--bf16",
+            "--max_samples", "640",
+            "--max_epochs", "1",
+            "--max_len", "2048",
+            "--zero_stage", "3",
+            "--ref_offload",
+            "--learning_rate", "3e-7",
+            "--l2", "0.05",
+            "--beta", "0.05",
+            "--dataset", f"json@{preference_data_path}",
+            "--apply_chat_template",
+            "--prompt_key", "question",
+            "--chosen_key", "response_i",
+            "--rejected_key", "response_j",
+            "--flash_attn",
+            "--gradient_checkpointing",
+            "--adam_offload", "--use_liger_kernel", "--packing_samples"
+        ]
+        subprocess.run(training_command, check=True)
+        model_name = f"{args.save_model_path}/{iteration}_model/"
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute DPO training pipeline.")
     # Model parameters
     parser.add_argument("--model_name", type=str, required=True, help="Name of the model to use")
     parser.add_argument("--serve", action="store_true", help="Whether to serve the model")
-    parser.add_argument("--api_base", type=str, default="http://localhost:8000", help="API base URL for the model server")
+    parser.add_argument("--api_base", type=str, default="http://localhost:8000/v1/", help="API base URL for the model server")
     parser.add_argument("--api_key", type=str, default="None", help="API key for the model server")
     parser.add_argument("--backend", type=str, default="vllm", help="Backend for the model server")
     parser.add_argument("--pp_size", type=int, default=1, help="Pipeline parallelism size")
@@ -174,11 +196,12 @@ if __name__ == "__main__":
     parser.add_argument("--task_name", type=str, required=True)
     parser.add_argument("--n_samples", type=int, default=4000, help="Number of samples")
     parser.add_argument("--sample_args", type=str, default=None, help="Sampling arguments")
+    parser.add_argument("--save_model_path", type=str, required=True, help="Output path for results")
 
     parser.add_argument("--task_path", type=str, default=None, help="Path to the task modules")
     parser.add_argument("--output_path", type=str, required=True, help="Output path for results")
     parser.add_argument("--max_model_len", type=int, default=2048, help="Maximum model length")
-    parser.add_argument("--max_rps", type=int, default=2048, help="Maximum requests per second")
+    parser.add_argument("--max_rps", type=int, default=512, help="Maximum requests per second")
     parser.add_argument("--model_checkpoint", type=str, default=None, help="Path to the model checkpoint")
     parser.add_argument("--max_iterations", type=int, default=4, help="Maximum number of iterations for training")
 
