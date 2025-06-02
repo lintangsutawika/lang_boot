@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import subprocess
 import argparse
@@ -15,17 +16,13 @@ from .construct import construct_preference
 
 reasoning_prompt_list = [
     "_".join([prompt, order]) for prompt in [
-    "eng_reason_A_box",
-    "eng_reason_in_{}_A_box",
+    # "eng_reason_A_box",
+    # "eng_reason_in_{}_A_box",
     "{}_reason_A_box"
     ] for order in [
-        "before",
+        # "before",
         "after",
         ]
-]
-
-translate_prompt_list = [
-    "{}_translate",
 ]
 
 def main(args):
@@ -44,13 +41,15 @@ def main(args):
 
     for iteration in range(args.max_iterations):
 
+        print(f"Running iteration {iteration} of {args.max_iterations}")
         if iteration < current_iteration:
             continue
 
         if iteration == 0:
             model_name = args.model_name
         else:
-            model_name = f"{args.save_model_path}/{iteration}_model/"
+            train = "dpo" if args.dpo else "sft"
+            model_name = f"{args.save_model_path}/{train}_{iteration-1}_model/"
 
         # Deploy VLLM Here
         if args.serve:
@@ -71,6 +70,13 @@ def main(args):
             max_rps=args.max_rps,
             )
 
+        # if args.sft:
+        #     # Skip the first prompt for SFT
+        #     prompt_list = reasoning_prompt_list[1:]
+        # else:
+        #     # Use all prompts for DPO
+        #     prompt_list = reasoning_prompt_list
+
         for idx, prompt in enumerate(reasoning_prompt_list):
             prompt_modifier = prompt.format(args.lang)
             print(f"Running task: {args.task_name} with prompt: {prompt_modifier}")
@@ -80,8 +86,15 @@ def main(args):
                 task_run_name = base_run_name+f":{query}"
 
                 if query == "reasoning":
+
                     task_kwargs = {
-                        "subtask_list": [partial(TASK_LIST[prompt_modifier], name=prompt_modifier)]
+                        "subtask_list": [
+                            partial(
+                                TASK_LIST[f"budget={args.budget}"],
+                                name=f"budget={args.budget}",
+                                user_message=TASK_LIST[prompt_modifier].user_message,
+                            ),
+                        ]
                     }
                     sampling_args = simple_parse_args_string(args.sample_args) if args.sample_args else None
 
@@ -92,6 +105,7 @@ def main(args):
                     shuffle_fn = partial(shuffle, seed=1000+iteration)
                     task_object = TASK_LIST[args.task_name](
                         preprocessing=shuffle_fn,
+                        user_message=TASK_LIST[prompt_modifier].user_message,
                         **task_kwargs,
                         )
                 else:
@@ -104,14 +118,16 @@ def main(args):
                         task_name = "{}_translate".format(args.lang)
                         source = "reasoning"
                     else:
+                        if not args.dpo:
+                            break
                         task_name = "default"
                         source = "translate"
-                    
+
                     task_kwargs = {
                         "data_kwargs": {
                             "data_files": {
                                 os.path.join(
-                                    args.output_path, 
+                                    args.output_path,
                                     base_run_name+f":{source}", # We need the queries from reasoning
                                     "output.jsonl"
                                 )
@@ -135,52 +151,85 @@ def main(args):
         if args.serve:
             model_server.stop(process)
 
-        preference_data_path = os.path.join(
-            args.output_path,
-            f"{iteration}:preference_data:{args.lang}:{args.task_name}"
-            )
+        for training in ["sft", "dpo"]:
+            if (training == "sft") and args.sft:
+                save_path = os.path.join(args.save_model_path, f"sft_{iteration}_model/")
+                cli_command = "openrlhf.cli.train_sft"
+                data_key = [
+                    "--input_key", "question",
+                    "--output_key", "response_i",
+                ]
 
-        # Construct Data
-        construct_preference(
-            iteration, args.lang, args.task_name, args.output_path,
-            preference_data_path,
-            )
+                training_specific = []
 
+            elif (training == "dpo") and args.dpo:
+                save_path = os.path.join(args.save_model_path, f"dpo_{iteration}_model/")
+                cli_command = "openrlhf.cli.train_dpo"
+                data_key = [
+                    "--prompt_key", "question",
+                    "--chosen_key", "response_i",
+                    "--rejected_key", "response_j",
+                ]
 
-        save_path = os.path.join(args.save_model_path, f"{iteration}_model/")
-        ckpt_path = os.path.join(f"{args.save_model_path}", "ckpt/")
-        # DPO Training
-        training_command = [
-            "deepspeed", "--module", "openrlhf.cli.train_dpo",
-            "--save_path", save_path,
-            "--ckpt_path", ckpt_path,
-            "--save_steps", "-1",
-            "--logging_steps", "1",
-            "--eval_steps", "-1",
-            "--train_batch_size", "64",
-            "--micro_train_batch_size", "4",
-            "--pretrain", model_name,
-            "--save_hf_ckpt",
-            "--bf16",
-            "--max_samples", "640",
-            "--max_epochs", "1",
-            "--max_len", "2048",
-            "--zero_stage", "3",
-            "--ref_offload",
-            "--learning_rate", "3e-7",
-            "--l2", "0.05",
-            "--beta", "0.05",
-            "--dataset", f"json@{preference_data_path}",
-            "--apply_chat_template",
-            "--prompt_key", "question",
-            "--chosen_key", "response_i",
-            "--rejected_key", "response_j",
-            "--flash_attn",
-            "--gradient_checkpointing",
-            "--adam_offload", "--use_liger_kernel", "--packing_samples"
-        ]
-        subprocess.run(training_command, check=True)
-        model_name = save_path
+                training_specific = [
+                    "--ref_offload",
+                    "--beta", "0.1",
+                ]
+            else:
+                continue
+
+            print(f"Running training: {training} for iteration {iteration}")
+            training_data_path = os.path.join(
+                args.output_path,
+                f"{iteration}:{training}:{args.lang}:{args.task_name}"
+                )
+
+            # Construct Data
+            construct_preference(
+                iteration, args.lang, args.task_name,
+                args.output_path,
+                training_data_path,
+                sft=True if training == "sft" else False,
+                )
+
+            ckpt_path = os.path.join(f"{args.save_model_path}", "ckpt/")
+
+            training_command = [
+                "deepspeed", "--module", f"{cli_command}",
+                "--save_path", save_path,
+                "--ckpt_path", ckpt_path,
+                "--save_steps", "-1",
+                "--logging_steps", "1",
+                "--eval_steps", "-1",
+                "--train_batch_size", "16",
+                "--micro_train_batch_size", "4",
+                "--lr_warmup_ratio", "0.05",
+                "--pretrain", model_name,
+                "--save_hf_ckpt",
+                "--bf16",
+                "--max_samples", str(1000),
+                "--max_epochs", "1",
+                "--max_len", "2048",
+                "--zero_stage", "3",
+                "--learning_rate", "1e-5",
+                "--l2", "1e-4",
+                "--dataset", f"json@{training_data_path}",
+                "--apply_chat_template",
+                "--input_template", "None",
+                "--flash_attn", "--gradient_checkpointing",
+                "--adam_offload", "--use_liger_kernel", "--packing_samples"
+            ] + data_key + training_specific
+
+            try:
+                process = subprocess.Popen(training_command)
+                exit_code = process.wait()
+            except Exception as e:
+                if "process" in locals():
+                    process.terminate()
+                    process.wait()
+                sys.exit()
+
+            model_name = save_path
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Execute DPO training pipeline.")
@@ -193,13 +242,17 @@ if __name__ == "__main__":
     parser.add_argument("--pp_size", type=int, default=1, help="Pipeline parallelism size")
     parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallelism size")
     parser.add_argument("--translate", action="store_true", help="Whether to serve the model")
-
+    parser.add_argument("--budget", type=int, default=512, help="Sampling budget in tokens")
     # Sampling parameters
     parser.add_argument("--lang", type=str, required=True, help="Path to the model")
     parser.add_argument("--task_name", type=str, required=True)
     parser.add_argument("--n_samples", type=int, default=4000, help="Number of samples")
     parser.add_argument("--sample_args", type=str, default=None, help="Sampling arguments")
     parser.add_argument("--save_model_path", type=str, required=True, help="Output path for results")
+
+    # Training parameters
+    parser.add_argument("--sft", action="store_true", help="Enable SFT training")
+    parser.add_argument("--dpo", action="store_true", help="Enable DPO training")
 
     parser.add_argument("--task_path", type=str, default=None, help="Path to the task modules")
     parser.add_argument("--output_path", type=str, required=True, help="Output path for results")
