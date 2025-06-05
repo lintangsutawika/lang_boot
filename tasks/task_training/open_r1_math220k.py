@@ -169,40 +169,14 @@ Penilaian yang disarankan. 2 poin untuk menentukan total keuntungan Ayah; 2 poin
 """,
 ]
 
-def shuffle(dataset, seed=0):
-    shuffled_dataset = dataset.shuffle(seed=seed)
-    return shuffled_dataset.flatten_indices()
-
 @register_task("open_r1_math_220k")
 class OpenR1Math220KTask(YevalTask):
     data_path="open-r1/OpenR1-Math-220k"
     data_name="default"
-    # preprocessing=shuffle
     input_text=lambda x: x["problem"]
     output_text=lambda x: x["answer"]
     test_split="train"
     evaluation={"score": lambda x,y: -1}
-
-@register_task("open_r1_math_220k_inference_0")
-class OpenR1Math220KTask(OpenR1Math220KTask):
-    preprocessing=lambda x: partial(shuffle, seed=1000)(x)
-
-@register_task("open_r1_math_220k_inference_1")
-class OpenR1Math220KTask(OpenR1Math220KTask):
-    preprocessing=lambda x: partial(shuffle, seed=1001)(x)
-
-@register_task("open_r1_math_220k_inference_2")
-class OpenR1Math220KTask(OpenR1Math220KTask):
-    preprocessing=lambda x: partial(shuffle, seed=1002)(x)
-
-@register_task("open_r1_math_220k_inference_3")
-class OpenR1Math220KTask(OpenR1Math220KTask):
-    preprocessing=lambda x: partial(shuffle, seed=1003)(x)
-
-@register_task("open_r1_math_220k_inference_4")
-class OpenR1Math220KTask(OpenR1Math220KTask):
-    preprocessing=lambda x: partial(shuffle, seed=1004)(x)
-
 
 # @register_task("translate_open_r1_input")
 class OpenR1Math220KTask(YevalTask):
