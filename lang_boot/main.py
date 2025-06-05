@@ -14,17 +14,6 @@ from yeval.utils import simple_parse_args_string
 
 from .construct import construct_preference
 
-reasoning_prompt_list = [
-    "_".join([prompt, order]) for prompt in [
-    # "eng_reason_A_box",
-    # "eng_reason_in_{}_A_box",
-    "{}_reason_A_box"
-    ] for order in [
-        # "before",
-        "after",
-        ]
-]
-
 def main(args):
 
     if args.task_path is not None:
@@ -33,7 +22,8 @@ def main(args):
     # Check if the model checkpoint exists and not empty
     print(f"Checking current iteration")
     for iteration in range(args.max_iterations):
-        model_checkpoint = os.path.join(args.save_model_path, f"{iteration}_model")
+        train = "dpo" if args.dpo else "sft"
+        model_checkpoint = os.path.join(args.save_model_path, f"{train}_{iteration}_model")
         if not os.path.exists(model_checkpoint) or not os.listdir(model_checkpoint):
             print(f"Continuing from iteration {iteration}")
             current_iteration = iteration
@@ -41,7 +31,7 @@ def main(args):
 
     for iteration in range(args.max_iterations):
 
-        print(f"Running iteration {iteration} of {args.max_iterations}")
+        print(f"Running iteration {iteration} of {args.max_iterations-1} on budget {args.budget} tokens")
         if iteration < current_iteration:
             continue
 
@@ -70,22 +60,52 @@ def main(args):
             max_rps=args.max_rps,
             )
 
-        # if args.sft:
-        #     # Skip the first prompt for SFT
-        #     prompt_list = reasoning_prompt_list[1:]
-        # else:
-        #     # Use all prompts for DPO
-        #     prompt_list = reasoning_prompt_list
+        prompt_list = [
+            # "eng_reason_A_box_after",
+            # "eng_reason_in_{}_A_box_after",
+            "{}_reason_A_box_after"
+        ]
 
-        for idx, prompt in enumerate(reasoning_prompt_list):
+        for idx, prompt in enumerate(prompt_list):
+            if args.no_sampling:
+                break
             prompt_modifier = prompt.format(args.lang)
             print(f"Running task: {args.task_name} with prompt: {prompt_modifier}")
             base_run_name = f"{iteration}:{args.lang}:{args.task_name}:{prompt_modifier}"
 
-            for query in ["reasoning", "translate", "default"]:
+            # for query in ["reasoning", "translate", "default"]:
+            for query in ["translate", "reasoning"]:
                 task_run_name = base_run_name+f":{query}"
 
-                if query == "reasoning":
+                if (query == "translate"):
+                    if args.no_translate:
+                        continue
+                    translate_file = f"{args.task_name}:{args.lang}:translate"
+                    try:
+                        if translate_file in os.listdir(args.output_path):
+                            continue
+                    except FileNotFoundError:
+                        task_run_name = translate_file
+
+                    sub_task_name = "{}_translate".format(args.lang)
+                    task_kwargs = {
+                        "subtask_list": [
+                            partial(
+                                TASK_LIST[sub_task_name],
+                                name=sub_task_name,
+                            )
+                        ]
+                    }
+
+                    sampling_args = None
+                    n_samples = None
+
+                    task_object = TASK_LIST[args.task_name](
+                        evaluation=TASK_LIST[sub_task_name].evaluation,
+                        sample_agg_fn=TASK_LIST[sub_task_name].sample_agg_fn,
+                        **task_kwargs,
+                        )
+                else:
 
                     task_kwargs = {
                         "subtask_list": [
@@ -97,53 +117,50 @@ def main(args):
                         ]
                     }
                     sampling_args = simple_parse_args_string(args.sample_args) if args.sample_args else None
+                    n_samples = args.n_samples
+                    def input_text(x):
+                        candidate = x["answer"]
+                        score = x["lang"]
+                        return candidate[score.index(max(score))]
 
                     def shuffle(dataset, seed=0):
                         shuffled_dataset = dataset.shuffle(seed=seed)
                         return shuffled_dataset.flatten_indices()
 
                     shuffle_fn = partial(shuffle, seed=1000+iteration)
-                    task_object = TASK_LIST[args.task_name](
-                        preprocessing=shuffle_fn,
-                        user_message=TASK_LIST[prompt_modifier].user_message,
-                        **task_kwargs,
+
+                    if args.no_translate:
+                        task_object = TASK_LIST[args.task_name](
+                            preprocessing=shuffle_fn,
+                            user_message=TASK_LIST[prompt_modifier].user_message,
+                            **task_kwargs,
                         )
-                else:
-
-                    # Only need to run translate once
-                    if idx > 0:
-                        break
-
-                    if query == "translate":
-                        task_name = "{}_translate".format(args.lang)
-                        source = "reasoning"
                     else:
-                        if not args.dpo:
-                            break
-                        task_name = "default"
-                        source = "translate"
-
-                    task_kwargs = {
-                        "data_kwargs": {
-                            "data_files": {
-                                os.path.join(
-                                    args.output_path,
-                                    base_run_name+f":{source}", # We need the queries from reasoning
-                                    "output.jsonl"
-                                )
-                            }
-                        }
-                    }
-                    sampling_args = None
-                    task_object = TASK_LIST[task_name](
-                        **task_kwargs
-                        )
+                        task_object = TASK_LIST[args.task_name](
+                            preprocessing=shuffle_fn,
+                            user_message=TASK_LIST[prompt_modifier].user_message,
+                            data_path="json",
+                            data_name=None,
+                            test_split="train",
+                            input_text=input_text,
+                            output_text="ground_truth",
+                            data_kwargs={
+                                "data_files": {
+                                    os.path.join(
+                                        args.output_path,
+                                        translate_file,
+                                        "output.jsonl"
+                                    )
+                                }
+                            },
+                            **task_kwargs
+                            )
 
                 asyncio.run(
                     evaluator.run(
                         task_object,
                         run_name=task_run_name,
-                        n_samples=args.n_samples,
+                        n_samples=n_samples,
                         sampling_args=sampling_args,
                     )
                 )
@@ -179,23 +196,29 @@ def main(args):
                 continue
 
             print(f"Running training: {training} for iteration {iteration}")
-            training_data_path = os.path.join(
-                args.output_path,
-                f"{iteration}:{training}:{args.lang}:{args.task_name}"
-                )
 
-            # Construct Data
-            construct_preference(
-                iteration, args.lang, args.task_name,
-                args.output_path,
-                training_data_path,
-                sft=True if training == "sft" else False,
-                )
+            if args.training_data_path:
+                training_data_path = args.training_data_path
+            else:
+                training_data_path = os.path.join(
+                    args.output_path,
+                    f"{iteration}:{training}:{args.lang}:{args.task_name}"
+                    )
+
+                # Construct Data
+                construct_preference(
+                    iteration, args.lang, args.task_name,
+                    args.output_path,
+                    training_data_path,
+                    sft=True if training == "sft" else False,
+                    )
 
             ckpt_path = os.path.join(f"{args.save_model_path}", "ckpt/")
 
             training_command = [
-                "deepspeed", "--module", f"{cli_command}",
+                "deepspeed", 
+                "--master_port", f"{args.master_port}",
+                "--module", f"{cli_command}",
                 "--save_path", save_path,
                 "--ckpt_path", ckpt_path,
                 "--save_steps", "-1",
@@ -208,7 +231,7 @@ def main(args):
                 "--save_hf_ckpt",
                 "--bf16",
                 "--max_samples", str(1000),
-                "--max_epochs", "1",
+                "--max_epochs", "5",
                 "--max_len", "2048",
                 "--zero_stage", "3",
                 "--learning_rate", "1e-5",
@@ -241,7 +264,7 @@ if __name__ == "__main__":
     parser.add_argument("--backend", type=str, default="vllm", help="Backend for the model server")
     parser.add_argument("--pp_size", type=int, default=1, help="Pipeline parallelism size")
     parser.add_argument("--tp_size", type=int, default=1, help="Tensor parallelism size")
-    parser.add_argument("--translate", action="store_true", help="Whether to serve the model")
+    parser.add_argument("--no_translate", action="store_true", help="Whether to serve the model")
     parser.add_argument("--budget", type=int, default=512, help="Sampling budget in tokens")
     # Sampling parameters
     parser.add_argument("--lang", type=str, required=True, help="Path to the model")
@@ -249,6 +272,9 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples", type=int, default=4000, help="Number of samples")
     parser.add_argument("--sample_args", type=str, default=None, help="Sampling arguments")
     parser.add_argument("--save_model_path", type=str, required=True, help="Output path for results")
+    parser.add_argument("--master_port", type=int, default=29500, help="Master port for distributed training")
+    parser.add_argument("--no_sampling", action="store_true", help="Disable sampling")
+    parser.add_argument("--training_data_path", type=str, default=None, help="Set training path manually")
 
     # Training parameters
     parser.add_argument("--sft", action="store_true", help="Enable SFT training")
