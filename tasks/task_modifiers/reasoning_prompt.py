@@ -4,6 +4,7 @@ from yeval.task import register_task, YevalTask
 class BaseBoxTask(YevalTask):
     postprocessor=get_boxed_answer
 
+# English
 @register_task("eng_reason_A_box_before")
 class EngReasonBoxTask(BaseBoxTask):
     user_message="Reason step by step and put your final answer within \\boxed{}."
@@ -28,6 +29,7 @@ class EngReasonBoxTask(BaseBoxTask):
 class EngReasonBoxTask(BaseBoxTask):
     user_message=lambda x: f"{x}"+"\nFirst give step by step reasoning, then write the answer within \\boxed{}."
 
+# Indonesian
 @register_task("eng_reason_in_ind_A_box_before")
 class EngReasonBoxTask(BaseBoxTask):
     user_message="Reason step by step in Indonesian and put your final answer within \\boxed{}."
@@ -54,6 +56,7 @@ class EngReasonBoxTask(BaseBoxTask):
 
 @register_task("ind_reason_A_box_before")
 class EngReasonBoxTask(BaseBoxTask):
+    system_message="Kamu adalah asisten yang senang membantu."
     user_message="Berpikir langkah demi langkah dan tuliskan jawaban akhir di dalam \\boxed{}."
 
 @register_task("ind_reason_A_box_after")
@@ -75,6 +78,31 @@ class EngReasonBoxTask(BaseBoxTask):
 @register_task("ind_reason_C_box_after")
 class EngReasonBoxTask(BaseBoxTask):
     user_message=lambda x: f"{x}"+"\nPertama-tama berikan penalaran langkah demi langkah, lalu tuliskan jawabannya di dalam \\boxed{}."
+
+# Chinese
+@register_task("eng_reason_in_zho_A_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Reason step by step in Chinese and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_zho_A_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nReason step by step in Chinese and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_zho_B_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Think about it step by step in Chinese and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_zho_B_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nThink about it step by step in Chinese and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_zho_C_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="First give step by step reasoning in Chinese, then write the answer within \\boxed{}."
+
+@register_task("eng_reason_in_zho_C_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nFirst give step by step reasoning in Chinese, then write the answer within \\boxed{}."
 
 @register_task("zho_reason_A_box_before")
 class EngReasonBoxTask(BaseBoxTask):
@@ -107,3 +135,101 @@ class EngReasonBoxTask(BaseBoxTask):
 # @register_task("jpn_reason_00_box")
 # class EngReasonIndBoxTask(BaseBoxTask):
 #     user_message="段階的に理論を展開し、最終的な答えを \\boxed{} の中に入れてください。"
+
+# Japanese
+@register_task("eng_reason_in_jpn_A_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Reason step by step in Japanese and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_jpn_A_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nReason step by step in Japanese and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_jpn_B_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Think about it step by step in Japanese and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_jpn_B_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nThink about it step by step in Japanese and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_jpn_C_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="First give step by step reasoning in Japanese, then write the answer within \\boxed{}."
+
+@register_task("eng_reason_in_jpn_C_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nFirst give step by step reasoning in Japanese, then write the answer within \\boxed{}."
+
+@register_task("jpn_reason_A_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="段階的に推論し、最終的な答えを\\boxed{}内に記入してください。"
+
+@register_task("jpn_reason_A_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\n段階的に推論し、最終的な答えを\\boxed{}内に記入してください。"
+
+@register_task("jpn_reason_B_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="段階的に考えて、最後に答えを\\boxed{}内に示してください。"
+
+@register_task("jpn_reason_B_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\n段階的に考えて、最後に答えを\\boxed{}内に示してください。"
+
+@register_task("jpn_reason_C_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="まず段階的な推論を示し、その後答えを\\boxed{}内に記述してください。"
+
+@register_task("jpn_reason_C_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nまず段階的な推論を示し、その後答えを\\boxed{}内に記述してください。"
+
+# French
+@register_task("eng_reason_in_fra_A_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Reason step by step in French and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_fra_A_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nReason step by step in French and put your final answer within \\boxed{}."
+
+@register_task("eng_reason_in_fra_B_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Think about it step by step in French and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_fra_B_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nThink about it step by step in French and give your answer at the end in \\boxed{}."
+
+@register_task("eng_reason_in_fra_C_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="First give step by step reasoning in French, then write the answer within \\boxed{}."
+
+@register_task("eng_reason_in_fra_C_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nFirst give step by step reasoning in French, then write the answer within \\boxed{}."
+
+@register_task("fra_reason_A_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Raisonnez étape par étape et mettez votre réponse finale dans \\boxed{}."
+
+@register_task("fra_reason_A_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nRaisonnez étape par étape et mettez votre réponse finale dans \\boxed{}."
+
+@register_task("fra_reason_B_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Réfléchissez étape par étape et donnez votre réponse à la fin dans \\boxed{}."
+
+@register_task("fra_reason_B_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nRéfléchissez étape par étape et donnez votre réponse à la fin dans \\boxed{}."
+
+@register_task("fra_reason_C_box_before")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message="Donnez d'abord un raisonnement étape par étape, puis écrivez la réponse dans \\boxed{}."
+
+@register_task("fra_reason_C_box_after")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nDonnez d'abord un raisonnement étape par étape, puis écrivez la réponse dans \\boxed{}."
