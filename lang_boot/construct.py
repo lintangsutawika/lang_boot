@@ -1,43 +1,83 @@
-import pandas as pd
 import os
 import re
+import string
 import random
-from tqdm import tqdm
-from datasets import load_dataset
 import argparse
-import multiprocessing
 import jsonlines
+import multiprocessing
+
+import pandas as pd
+
+from tqdm import tqdm
 from functools import partial
-from yeval.response.math_responses import get_boxed_answer
-from math_verify import parse, verify
+from datasets import load_dataset
+from nltk.tokenize import word_tokenize
 
 from langdetect import detect_langs
 
 lang_map = {
+    "eng": "en",
     "ind": "id",
     "jpn": "ja",
     "zho": "zh",
 }
 
-def get_score(prediction, ground_truth, lang="id", score=None):
+def get_lang_score(prediction, lang="id"):
+
     lang_prob = 0.0
     try:
-        if score is None:
-            score = 0
-            pr = parse(get_boxed_answer(prediction))
-            gt = parse(ground_truth)
-            score = int(verify(gt, pr))
-        # print("pr", pr, "gt", gt, "score", score)
         langs = detect_langs(prediction)
         for l in langs:
             if l.lang == lang:
                 lang_prob = l.prob
     except Exception as e:
-        print(f"Error: {e}")
+        lang_prob = 0.0
 
-    return prediction, lang_prob, score
+    return prediction, lang_prob
 
-def process_response(ground_truth, response, lang, as_string=False):
+def process_query(query, lang, as_string=False):
+
+    query_list = []
+
+    response_dict = {
+        "query": [],
+        "lang": [],
+    }
+
+    score_fn = partial(get_lang_score, lang=lang)
+    results = map(score_fn, query)
+    for q, lang_prob in list(results):
+        response_dict["query"].append(q)
+        response_dict["lang"].append(lang_prob)
+
+    all_responses = pd.DataFrame(response_dict)
+    all_responses = all_responses.sort_values(by=['lang'], ascending=False)
+    all_responses = all_responses.reset_index(drop=True)
+
+    prompt = all_responses.iloc[0]["query"]
+    if as_string:
+        return prompt
+
+    return [{"role": "user", "content": prompt}]
+
+def calculate_overlap(row):
+    input_words = set(word for word in np.unique(row["input"].split()).tolist() if word not in stop_words)
+    output_words = set(word for word in np.unique(row["output"].split()).tolist() if word not in stop_words)
+    overlap = len(input_words & output_words) / len(input_words | output_words)
+    return overlap
+
+def n_gram_overlap(input_text, output_text, n=2):
+    input_words = word_tokenize(input_text)
+    output_words = word_tokenize(output_text)
+    
+    input_ngrams = set(tuple(input_words[i:i+n]) for i in range(len(input_words)-n+1))
+    output_ngrams = set(tuple(output_words[i:i+n]) for i in range(len(output_words)-n+1))
+    
+    overlap = len(input_ngrams & output_ngrams) / len(input_ngrams | output_ngrams)
+    return overlap
+
+# , as_string=False, sft=False
+def rank_response(input_text, response, score, lang):
 
     response_i_list = []
     response_j_list = []
@@ -46,40 +86,47 @@ def process_response(ground_truth, response, lang, as_string=False):
         "answers": [],
         "lang": [],
         "score": [],
+        "overlap": [],
     }
 
-    score_fn = partial(get_score, ground_truth=ground_truth, lang=lang)
+    score_fn = partial(get_lang_score, lang=lang)
     results = map(score_fn, response)
-    for prediction, lang_prob, score in list(results):
+    for s, (prediction, lang_prob) in zip(score, list(results)):
         response_dict["answers"].append(prediction)
         response_dict["lang"].append(lang_prob)
-        response_dict["score"].append(score)
+        response_dict["score"].append(s)
+        response_dict["overlap"].append(n_gram_overlap(input_text, prediction))
 
     all_responses = pd.DataFrame(response_dict)
-    all_responses = all_responses.sort_values(by=['score', 'lang'], ascending=False)
+    all_responses = all_responses.sort_values(by=['score', 'lang', 'overlap'], ascending=False)
     all_responses = all_responses.reset_index(drop=True)
-    # all_responses = all_responses[all_responses["score"] == 1]
-    # return all_responses
 
-    for idx in range(len(all_responses)):
-        preferred = all_responses.iloc[idx]
-        if (preferred['lang'] < 0.1) or (preferred['score'] == 0):
-            break
+    preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
+    dispreferred = all_responses[(all_responses['lang'] <= 0.5)]
+    dispreferred.loc[:, "lang"] = 1 - dispreferred.loc[:, "lang"]
+    dispreferred = dispreferred.sort_values(by=['score', 'lang'], ascending=False)
 
-        dispreferred = all_responses.iloc[idx+1:]
-        if len(dispreferred) == 0:
-            break
+    return preferred, dispreferred
 
-        response_1, lang_1, score_1 = preferred
-        for idx_2, (response_2, lang_2, score_2) in dispreferred.iterrows():
-            if (lang_2 > 0.50) and (score_2 == 1):
-                continue
-            if as_string:
-                response_i_list.append(response_1)
-                response_j_list.append(response_2)
-            else:
-                response_i_list.append([{"role": "assistant", "content":response_1}])
-                response_j_list.append([{"role": "assistant", "content":response_2}])
+    # for idx in range(len(all_responses)):
+    #     preferred = all_responses.iloc[idx]
+    #     if (preferred['lang'] < 0.1) or (preferred['score'] == 0):
+    #         break
+
+    #     dispreferred = all_responses.iloc[idx+1:]
+    #     if len(dispreferred) == 0:
+    #         break
+
+    #     response_1, lang_1, score_1 = preferred
+    #     for idx_2, (response_2, lang_2, score_2) in dispreferred.iterrows():
+    #         if (lang_2 > 0.50) and (score_2 == 1):
+    #             continue
+    #         if as_string:
+    #             response_i_list.append(response_1)
+    #             response_j_list.append(response_2)
+    #         else:
+    #             response_i_list.append([{"role": "assistant", "content":response_1}])
+    #             response_j_list.append([{"role": "assistant", "content":response_2}])
 
     # preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
     # if len(preferred) == 0:
@@ -97,21 +144,20 @@ def process_response(ground_truth, response, lang, as_string=False):
 
     return response_i_list, response_j_list
 
-def construct_preference(iteration, lang, task, input_path, output_path, as_string=False):
+def input_text(x):
+    text = "\n"+x["step"][0]["full_input"][0]["content"]
+    text = re.sub("(\n((?!\n).)*?boxed{}.)", "", text)
+    return text.strip()
 
+def construct_preference(iteration, lang, task, input_path, output_path, as_string=False, sft=False):
+
+    lang_id = lang_map[lang]
     prefix = f"{iteration}:{lang}:{task}"
 
     if os.path.exists(output_path) is False:
         os.makedirs(output_path)
 
-    preference_data = {
-        # 'task':[],
-        # 'solution':[],
-        'question':[],
-        'response_i':[],
-        'response_j':[],
-        'ground_truth':[]
-        }
+    preference_data = []
 
     sample_list = [_dir for _dir in os.listdir(input_path) if _dir.startswith(prefix)]
 
@@ -125,63 +171,91 @@ def construct_preference(iteration, lang, task, input_path, output_path, as_stri
                 collected_responses[idx] = {
                     "query": [],
                     "ground_truth": None,
-                    "response_reason": [],
-                    "response_default": [],
+                    "prompted_score": [],
+                    "default_score": [],
+                    "prompted_response": [],
+                    "default_response": [],
                 }
 
             if sample_dir.endswith("translate"):
                 sampled_text = sample["answer"]
-                collected_responses[idx]["query"].extend(sampled_text)
+                collected_responses[idx]["query"] = sampled_text
                 collected_responses[idx]["ground_truth"] = sample["ground_truth"]
-            elif sample_dir.endswith("reasoning"):
-                sampled_text = sample["step"][0]["completion"]
-                collected_responses[idx]["response_reason"].extend(sampled_text)
-            elif sample_dir.endswith("default"):
-                sampled_text = sample["step"][0]["completion"]
-                collected_responses[idx]["response_default"].extend(sampled_text)
+            else:
+                if sample_dir.endswith("reasoning"):
+                    response_key, score_key = "prompted_response", "prompted_score"
+                elif sample_dir.endswith("default"):
+                    response_key, score_key = "default_response", "default_score"
 
-    lang_id = lang_map[lang]
-    _process_response = partial(process_response, lang=lang_id, as_string=as_string)
+                collected_responses[idx]["query"] = input_text(sample)
+                collected_responses[idx]["ground_truth"] = sample["ground_truth"]
+                for step in sample["step"]:
+                    sampled_text = step["completion"]
+                    sampled_acc = step["eval"]["acc"]
+                    collected_responses[idx][response_key].extend(sampled_text)
+                    collected_responses[idx][score_key].extend(sampled_acc)
+
+    _rank_response = partial(rank_response, lang=lang_id)
     result_list = []
-    for _, response in tqdm(collected_responses.items(), total=len(collected_responses)):
-        result_list.append(
-            _process_response(
-                response["ground_truth"],
-                response["response_reason"]+response["response_default"]
-                )
+    for idx in tqdm(range(len(collected_responses))):
+        # Skip if no responses are correct
+        if sum(collected_responses[idx]["prompted_score"]) == 0:
+            continue
+
+        # query = process_query(collected_responses[idx]["query"], lang=lang_id)
+        query_text = collected_responses[idx]["query"]
+        query = [{"role": "user", "content": query_text}]
+        ground_truth = collected_responses[idx]["ground_truth"]
+        responses = collected_responses[idx]["prompted_response"]+collected_responses[idx]["default_response"]
+        scores = collected_responses[idx]["prompted_score"]+collected_responses[idx]["default_score"]
+        preferred, dispreferred = _rank_response(
+            input_text=query_text,
+            response=responses,
+            score=scores,
         )
 
-    result_list = [result for result in result_list if len(result[0]) != 0]
-    for idx in range(len(result_list)):
-        response_i_list, response_j_list = result_list[idx]
-        assert len(response_i_list) == len(response_j_list), "Response lists must be of the same length"
-        query = collected_responses[idx]["query"]
-        ground_truth = collected_responses[idx]["ground_truth"]
-        
-        # data['task'].extend([task] * len(response_i_list))
-        preference_data['question'].extend([query]* len(response_i_list))
-        preference_data['ground_truth'].extend([ground_truth] * len(response_i_list))
-        preference_data['response_i'].extend(response_i_list)
-        preference_data['response_j'].extend(response_j_list)
+        if sft == False and len(dispreferred) == 0:
+            print(f"Skipping idx {idx} as no dispreferred responses found")
+            continue
+
+        max_samples = 1
+        preferred = preferred.iloc[:max_samples]
+        dispreferred = dispreferred.iloc[:max_samples]
+
+        line = {"ground_truth": ground_truth, "question": query}
+
+        if sft:
+            for idx_0 in range(len(preferred)):
+                response_1, *_ = preferred.iloc[idx_0]
+
+                if not as_string:
+                    response_1 = [{"role": "assistant", "content": response_1}]
+                preference_data.append({**line, "response_i": response_1})
+        else:
+            for idx_0 in range(len(preferred)):
+                for idx_1 in range(len(dispreferred)):
+
+                    response_1, *_ = preferred.iloc[idx_0]
+                    response_2, *_ = dispreferred.iloc[idx_1]
+
+                    if not as_string:
+                        response_1 = [{"role": "assistant", "content":response_1}]
+                        response_2 = [{"role": "assistant", "content":response_2}]
+
+                    preference_data.append({**line, "response_i": response_1, "response_j": response_2})
+
+    random.shuffle(preference_data)
+    train_split = int(len(preference_data) * 0.9)
+
+    train_data = preference_data[:train_split]
+    test_data = preference_data[train_split:]
 
     with jsonlines.open(os.path.join(output_path, "train.jsonl"), mode='w') as writer:
-        for q, i, j, g in zip(preference_data['question'], preference_data['response_i'], preference_data['response_j'], preference_data['ground_truth']):
-            line = {"ground_truth": g, "question": q, "response_i": i, "response_j": j}
-            writer.write(line)
+        writer.write_all(train_data)
 
-    test_samples = 128
     with jsonlines.open(os.path.join(output_path, "test.jsonl"), mode='w') as writer:
-        for idx, (q, i, j, g) in enumerate(zip(preference_data['question'], preference_data['response_i'], preference_data['response_j'], preference_data['ground_truth'])):
+        writer.write_all(test_data)
 
-            if idx == test_samples:
-                break
-
-            line = {"ground_truth": g, "question": q, "response_i": i, "response_j": j}
-            writer.write(line)
-
-    #df = pd.DataFrame(data)
-    #df = df.sample(frac=1).reset_index(drop=True)
-    #df.to_csv(os.path.join(args.output_path, "data.csv"), index=False)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -192,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_path', type=str)
     parser.add_argument('--output_path', type=str)
     parser.add_argument('--as_string', action='store_true', default=False)
+    parser.add_argument('--sft', action='store_true', default=False)
     args = parser.parse_args()
     construct_preference(
         args.iteration,
@@ -199,5 +274,6 @@ if __name__ == "__main__":
         args.task,
         args.input_path,
         args.output_path,
-        as_string=args.as_string
+        as_string=args.as_string,
+        sft=args.sft,
     )
