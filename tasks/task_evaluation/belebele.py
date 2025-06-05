@@ -22,7 +22,7 @@ def output_text(x):
     text = " ".join(text)
     return [letter, text, answer]
 
-def eval(prediction, ground_truth):
+def eval_fn(prediction, ground_truth):
     score = 0
     try:
         letter, text, full_span = ground_truth
@@ -44,15 +44,11 @@ def eval(prediction, ground_truth):
         pass
     return score
 
-@register_task("sea_eval_cross_mmlu_ind")
+@register_task("belebele_ind")
 class MGSMTask(YevalTask):
     data_path="facebook/belebele"
     data_name="ind_Latn"
     input_text=input_text
     output_text=output_text
     test_split="test"
-    evaluation={"accuracy": eval}
-
-@register_task("sea_eval_cross_logiqa_ind")
-class MGSMTask(MGSMTask):
-    data_path="SeaEval/cross_logiqa"
+    evaluation={"accuracy": eval_fn}
