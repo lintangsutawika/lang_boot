@@ -22,7 +22,10 @@ def main(args):
     # Check if the model checkpoint exists and not empty
     print(f"Checking current iteration")
     for iteration in range(args.max_iterations):
-        train = "dpo" if args.dpo else "sft"
+        if args.grpo:
+            train = "grpo"
+        else:
+            train = "dpo" if args.dpo else "sft"
         model_checkpoint = os.path.join(args.save_model_path, f"{train}_{iteration}_model")
         if not os.path.exists(model_checkpoint) or not os.listdir(model_checkpoint):
             print(f"Continuing from iteration {iteration}")
@@ -52,13 +55,13 @@ def main(args):
                 )
             process = model_server.start()
 
-        evaluator = EvaluateSystem(
-            model=model_name,
-            api_base=args.api_base,
-            api_key=args.api_key,
-            output_path=args.output_path,
-            max_rps=args.max_rps,
-            )
+            evaluator = EvaluateSystem(
+                model=model_name,
+                api_base=args.api_base,
+                api_key=args.api_key,
+                output_path=args.output_path,
+                max_rps=args.max_rps,
+                )
 
         prompt_list = [
             # "eng_reason_A_box_after",
@@ -168,7 +171,14 @@ def main(args):
         if args.serve:
             model_server.stop(process)
 
-        for training in ["sft", "dpo"]:
+        for training in ["sft", "dpo", "grpo"]:
+
+            training_specific = [
+                "--learning_rate", "5e-6",
+                "--max_samples", str(args.n_samples),
+                "--max_epochs", "5",
+            ]
+
             if (training == "sft") and args.sft:
                 save_path = os.path.join(args.save_model_path, f"sft_{iteration}_model/")
                 cli_command = "openrlhf.cli.train_sft"
@@ -176,8 +186,6 @@ def main(args):
                     "--input_key", "question",
                     "--output_key", "response_i",
                 ]
-
-                training_specific = []
 
             elif (training == "dpo") and args.dpo:
                 save_path = os.path.join(args.save_model_path, f"dpo_{iteration}_model/")
@@ -188,9 +196,36 @@ def main(args):
                     "--rejected_key", "response_j",
                 ]
 
-                training_specific = [
+                training_specific += [
                     "--ref_offload",
                     "--beta", "0.1",
+                ]
+            elif (training == "grpo") and args.grpo:
+                save_path = os.path.join(args.save_model_path, f"grpo_{iteration}_model/")
+                cli_command = "openrlhf.cli.train_ppo_ray"
+                data_key = [
+                    "--input_key", "question",
+                    "--label_key", "response_i",
+                ]
+
+                training_specific = [
+                    "--actor_num_gpus_per_node", "1",
+                    "--vllm_num_engines", "1",
+                    "--colocate_all_models",
+                    "--actor_learning_rate", "5e-6",
+                    "--advantage_estimator", "group_norm",
+                    "--use_kl_loss",
+                    "--init_kl_coef", "0",
+                    "--normalize_reward",
+                    "--n_samples_per_prompt", "16",
+                    "--prompt_max_len", "1024", 
+                    "--generate_max_len", "1024", 
+                    "--micro_rollout_batch_size", "32", 
+                    "--rollout_batch_size", "1024", 
+                    "--remote_rm_url", "lang_boot/lang_boot/reward_func.py",
+                    "--max_samples", str(10000),
+                    "--prompt_split", "train",
+                    "--eval_split", "test",
                 ]
             else:
                 continue
@@ -210,8 +245,17 @@ def main(args):
                     iteration, args.lang, args.task_name,
                     args.output_path,
                     training_data_path,
-                    sft=True if training == "sft" else False,
+                    sft=True if training != "dpo" else False,
                     )
+
+            if training == "grpo":
+                data_key += [
+                    "--prompt_data", f"json@{training_data_path}",
+                ]
+            else:
+                data_key += [
+                    "--dataset", f"json@{training_data_path}",
+                ]
 
             ckpt_path = os.path.join(f"{args.save_model_path}", "ckpt/")
 
@@ -230,13 +274,9 @@ def main(args):
                 "--pretrain", model_name,
                 "--save_hf_ckpt",
                 "--bf16",
-                "--max_samples", str(1000),
-                "--max_epochs", "5",
                 "--max_len", "2048",
                 "--zero_stage", "3",
-                "--learning_rate", "1e-5",
                 "--l2", "1e-4",
-                "--dataset", f"json@{training_data_path}",
                 "--apply_chat_template",
                 "--input_template", "None",
                 "--flash_attn", "--gradient_checkpointing",
@@ -279,6 +319,7 @@ if __name__ == "__main__":
     # Training parameters
     parser.add_argument("--sft", action="store_true", help="Enable SFT training")
     parser.add_argument("--dpo", action="store_true", help="Enable DPO training")
+    parser.add_argument("--grpo", action="store_true", help="Enable GRPO training")
 
     parser.add_argument("--task_path", type=str, default=None, help="Path to the task modules")
     parser.add_argument("--output_path", type=str, required=True, help="Output path for results")
