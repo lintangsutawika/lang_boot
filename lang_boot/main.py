@@ -174,7 +174,7 @@ def main(args):
         for training in ["sft", "dpo", "grpo"]:
 
             training_specific = [
-                "--learning_rate", "5e-6",
+                "--learning_rate", "1e-5",
                 "--max_samples", str(args.n_samples),
                 "--max_epochs", "5",
             ]
@@ -212,7 +212,7 @@ def main(args):
                     "--actor_num_gpus_per_node", "1",
                     "--vllm_num_engines", "1",
                     "--colocate_all_models",
-                    "--actor_learning_rate", "5e-6",
+                    "--actor_learning_rate", "1e-5",
                     "--advantage_estimator", "group_norm",
                     "--use_kl_loss",
                     "--init_kl_coef", "0",
@@ -265,28 +265,31 @@ def main(args):
                 "--module", f"{cli_command}",
                 "--save_path", save_path,
                 "--ckpt_path", ckpt_path,
-                "--save_steps", "-1",
+                "--save_steps", "62",
                 "--logging_steps", "1",
                 "--eval_steps", "-1",
                 "--train_batch_size", "16",
-                "--micro_train_batch_size", "4",
+                "--micro_train_batch_size", "8",
                 "--lr_warmup_ratio", "0.05",
                 "--pretrain", model_name,
                 "--save_hf_ckpt",
                 "--bf16",
-                "--max_len", "2048",
+                "--max_len", "4096",
                 "--zero_stage", "3",
                 "--l2", "1e-4",
                 "--apply_chat_template",
                 "--input_template", "None",
                 "--flash_attn", "--gradient_checkpointing",
-                "--adam_offload", "--use_liger_kernel", "--packing_samples"
+                "--adam_offload",
+                # "--use_liger_kernel",
+                "--packing_samples",
             ] + data_key + training_specific
 
             try:
                 process = subprocess.Popen(training_command)
                 exit_code = process.wait()
             except Exception as e:
+                print(f"Error during training: {e}")
                 if "process" in locals():
                     process.terminate()
                     process.wait()
