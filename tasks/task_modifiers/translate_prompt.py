@@ -4,6 +4,7 @@ from functools import partial
 from langdetect import detect_langs
 
 from yeval.task import register_task, YevalTask
+from yeval.log.usage import log_logprob
 
 def input_text(x):
     text = "\n"+x["step"][0]["full_input"][0]["content"]
@@ -43,9 +44,12 @@ class INDTranslateTask(YevalTask):
     sampling_args={
         "extra_body":{"guided_regex": "####(.*)"},
         "n": 4,
+        "temperature": 1.0,
+        "logprobs": True,
         }
     evaluation={"lang": partial(lang_content, lang="id")}
     sample_agg_fn={"lang": lambda x: x}
+    logging=log_logprob
 
 @register_task("jpn_translate")
 class JPNTranslateTask(INDTranslateTask):
