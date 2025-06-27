@@ -1,8 +1,47 @@
+from functools import partial
+from langdetect import detect_langs
+
 from yeval.response.math_responses import get_boxed_answer
 from yeval.task import register_task, YevalTask
+from yeval.log.usage import log_logprob
+
+def lang_content(x, y, lang="id"):
+    lang_prob = 0.0
+    try:
+        langs = detect_langs(x)
+        for l in langs:
+            if l.lang == lang:
+                lang_prob = l.prob
+    except Exception as e:
+        print(f"Error detecting language: {e}")
+        lang_prob = 0.0
+
+    return lang_prob
 
 class BaseBoxTask(YevalTask):
     postprocessor=get_boxed_answer
+    logging=log_logprob
+
+@register_task("ind_generate_traces")
+class IndReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nBerpikir langkah demi langkah dan tuliskan jawaban akhir di dalam \\boxed{}."
+    postprocessor=None
+    evaluation={"lang": partial(lang_content, lang="id")}
+    sample_agg_fn={"lang": lambda x: x}
+
+@register_task("zho_generate_traces")
+class ZhoReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\n请一步一步推理，并把最终答案写在 \\boxed{} 中。"
+    postprocessor=None
+    evaluation={"lang": partial(lang_content, lang="zh")}
+    sample_agg_fn={"lang": lambda x: x}
+
+@register_task("jpn_generate_traces")
+class JpnReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\n段階的に推論し、最終的な答えを\\boxed{}内に記入してください。"
+    postprocessor=None
+    evaluation={"lang": partial(lang_content, lang="ja")}
+    sample_agg_fn={"lang": lambda x: x}
 
 # English
 @register_task("eng_reason_A_box_before")
