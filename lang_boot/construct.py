@@ -7,13 +7,17 @@ import jsonlines
 import multiprocessing
 
 import pandas as pd
+import numpy as np
 
 from tqdm import tqdm
 from functools import partial
 from datasets import load_dataset
-from nltk.tokenize import word_tokenize
+# from nltk.tokenize import word_tokenize
 
 from langdetect import detect_langs
+
+# TODO Choose reward models
+# df.apply(lambda row: row.step[0]['completion'][row['logprob'].index(max(row['logprob']))], axis=1)
 
 lang_map = {
     "eng": "en",
@@ -21,6 +25,12 @@ lang_map = {
     "jpn": "ja",
     "zho": "zh",
 }
+
+def from_key(x, key):
+    return x[key] if key in x else None
+
+def from_completions(x):
+    return x["step"][0]["completion"]
 
 def get_lang_score(prediction, lang="id"):
 
@@ -35,245 +45,177 @@ def get_lang_score(prediction, lang="id"):
 
     return prediction, lang_prob
 
-def process_query(query, lang, as_string=False):
-
-    query_list = []
-
-    response_dict = {
-        "query": [],
-        "lang": [],
-    }
-
-    score_fn = partial(get_lang_score, lang=lang)
-    results = map(score_fn, query)
-    for q, lang_prob in list(results):
-        response_dict["query"].append(q)
-        response_dict["lang"].append(lang_prob)
-
-    all_responses = pd.DataFrame(response_dict)
-    all_responses = all_responses.sort_values(by=['lang'], ascending=False)
-    all_responses = all_responses.reset_index(drop=True)
-
-    prompt = all_responses.iloc[0]["query"]
-    if as_string:
-        return prompt
-
-    return [{"role": "user", "content": prompt}]
-
-def calculate_overlap(row):
-    input_words = set(word for word in np.unique(row["input"].split()).tolist() if word not in stop_words)
-    output_words = set(word for word in np.unique(row["output"].split()).tolist() if word not in stop_words)
-    overlap = len(input_words & output_words) / len(input_words | output_words)
-    return overlap
-
-def n_gram_overlap(input_text, output_text, n=2):
-    input_words = word_tokenize(input_text)
-    output_words = word_tokenize(output_text)
+def select_best_candidate(row, col_name="input_candidates", use_logprob=True, use_accuracy=False, use_lang=False):
     
-    input_ngrams = set(tuple(input_words[i:i+n]) for i in range(len(input_words)-n+1))
-    output_ngrams = set(tuple(output_words[i:i+n]) for i in range(len(output_words)-n+1))
+    candidates_dict = {'candidate': row[col_name]}
     
-    overlap = len(input_ngrams & output_ngrams) / len(input_ngrams | output_ngrams)
-    return overlap
+    # Sort by selected criteria (descending order)
+    sort_columns = []
+    if use_logprob:
+        sort_columns.append('logprob')
+        candidates_dict["logprob"] = row["logprob"]
+    else:
+        candidates_dict["logprob"] = [1.0] * len(row[col_name])
 
-# , as_string=False, sft=False
-def rank_response(input_text, response, score, lang):
+    if use_lang:
+        sort_columns.append('lang')
+        candidates_dict["lang"] = row["lang"]
+    else:
+        candidates_dict["lang"] = [1.0] * len(row[col_name])
 
-    response_i_list = []
-    response_j_list = []
+    if use_accuracy:
+        sort_columns.append('accuracy')
+        candidates_dict["accuracy"] = row["accuracy"]
+    else:
+        candidates_dict["accuracy"] = [1.0] * len(row[col_name])
+    
+    candidates_df = pd.DataFrame(candidates_dict)
 
-    response_dict = {
-        "answers": [],
-        "lang": [],
-        "score": [],
-        "overlap": [],
-    }
+    candidates_df["score"] = (-1/candidates_df["logprob"]) * candidates_df["lang"] * candidates_df["accuracy"]
 
-    score_fn = partial(get_lang_score, lang=lang)
-    results = map(score_fn, response)
-    for s, (prediction, lang_prob) in zip(score, list(results)):
-        response_dict["answers"].append(prediction)
-        response_dict["lang"].append(lang_prob)
-        response_dict["score"].append(s)
-        response_dict["overlap"].append(n_gram_overlap(input_text, prediction))
+    candidates_df = candidates_df.sort_values(by="score", ascending=False)
+    
+    return candidates_df.iloc[0]['candidate']
 
-    all_responses = pd.DataFrame(response_dict)
-    all_responses = all_responses.sort_values(by=['score', 'lang', 'overlap'], ascending=False)
-    all_responses = all_responses.reset_index(drop=True)
+# def rank_response(input_text, response, score, lang):
 
-    preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
-    dispreferred = all_responses[(all_responses['lang'] <= 0.5)]
-    dispreferred.loc[:, "lang"] = 1 - dispreferred.loc[:, "lang"]
-    dispreferred = dispreferred.sort_values(by=['score', 'lang'], ascending=False)
+#     response_i_list = []
+#     response_j_list = []
 
-    return preferred, dispreferred
+#     response_dict = {
+#         "answers": [],
+#         "lang": [],
+#         "score": [],
+#         "overlap": [],
+#     }
 
-    # for idx in range(len(all_responses)):
-    #     preferred = all_responses.iloc[idx]
-    #     if (preferred['lang'] < 0.1) or (preferred['score'] == 0):
-    #         break
+#     score_fn = partial(get_lang_score, lang=lang)
+#     results = map(score_fn, response)
+#     for s, (prediction, lang_prob) in zip(score, list(results)):
+#         response_dict["answers"].append(prediction)
+#         response_dict["lang"].append(lang_prob)
+#         response_dict["score"].append(s)
 
-    #     dispreferred = all_responses.iloc[idx+1:]
-    #     if len(dispreferred) == 0:
-    #         break
+#     all_responses = pd.DataFrame(response_dict)
+#     all_responses = all_responses.sort_values(by=['score', 'lang', 'overlap'], ascending=False)
+#     all_responses = all_responses.reset_index(drop=True)
 
-    #     response_1, lang_1, score_1 = preferred
-    #     for idx_2, (response_2, lang_2, score_2) in dispreferred.iterrows():
-    #         if (lang_2 > 0.50) and (score_2 == 1):
-    #             continue
-    #         if as_string:
-    #             response_i_list.append(response_1)
-    #             response_j_list.append(response_2)
-    #         else:
-    #             response_i_list.append([{"role": "assistant", "content":response_1}])
-    #             response_j_list.append([{"role": "assistant", "content":response_2}])
+#     preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
+#     dispreferred = all_responses[(all_responses['lang'] <= 0.5)]
+#     dispreferred.loc[:, "lang"] = 1 - dispreferred.loc[:, "lang"]
+#     dispreferred = dispreferred.sort_values(by=['score', 'lang', 'logprob'], ascending=False)
 
-    # preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
-    # if len(preferred) == 0:
-    #     return None
+#     return preferred, dispreferred
 
-    # dispreferred = all_responses[~all_responses.isin(preferred)].dropna()
-    # for idx_1, (response_1, lang_1, score_1) in preferred.iterrows():
-    #     for idx_2, (response_2, lang_2, score_2) in dispreferred.iterrows():
-    #         # data['question'].append(input_text)
-    #         question_list.append([{"role":"user", "content":input_text}])
-    #         # data['response_i'].append(response_1)
-    #         response_i_list.append([{"role": "assistant", "content":response_1}])
-    #         # data['response_j'].append(response_2)
-    #         response_j_list.append([{"role": "assistant", "content":response_2}])
+system_message = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}]
 
-    return response_i_list, response_j_list
-
-def input_text(x):
-    text = "\n"+x["step"][0]["full_input"][0]["content"]
-    text = re.sub("(\n((?!\n).)*?boxed{}.)", "", text)
-    return text.strip()
-
-def construct_preference(iteration, lang, task, input_path, output_path, as_string=False, sft=False):
-
-    lang_id = lang_map[lang]
-    prefix = f"{iteration}:{lang}:{task}"
-
-    if os.path.exists(output_path) is False:
-        os.makedirs(output_path)
-
-    preference_data = []
-
-    sample_list = [_dir for _dir in os.listdir(input_path) if _dir.startswith(prefix)]
+def construct_dataframe(
+    translate_path, generate_path, output_path,
+    max_samples=-1, keep_keys=None, use_accuracy=False, use_lang=False, lang_code="id",
+    ):
 
     collected_responses = {}
-    for sample_dir in sample_list:
 
-        sample_lines = load_dataset("json", data_files=os.path.join(input_path, sample_dir, "output.jsonl"))['train']
-        for sample in sample_lines:
-            idx = sample['idx']
-            if idx not in collected_responses:
-                collected_responses[idx] = {
-                    "query": [],
-                    "ground_truth": None,
-                    "prompted_score": [],
-                    "default_score": [],
-                    "prompted_response": [],
-                    "default_response": [],
-                }
+    translate_df = pd.read_json(os.path.join(translate_path, "output.jsonl"), lines=True)
+    generate_df = pd.read_json(os.path.join(generate_path, "output.jsonl"), lines=True)
 
-            if sample_dir.endswith("translate"):
-                sampled_text = sample["answer"]
-                collected_responses[idx]["query"] = sampled_text
-                collected_responses[idx]["ground_truth"] = sample["ground_truth"]
-            else:
-                if sample_dir.endswith("reasoning"):
-                    response_key, score_key = "prompted_response", "prompted_score"
-                elif sample_dir.endswith("default"):
-                    response_key, score_key = "default_response", "default_score"
+    df = pd.DataFrame()
+    translate_df['input_candidates'] = translate_df.apply(lambda row: from_key(row, "answer"), axis=1)
+    # df['input_selected'] = translate_df.apply(lambda row: row["input_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
+    df['input_selected'] = translate_df.apply(
+        lambda row: select_best_candidate(
+            row, 
+            col_name="input_candidates",
+            use_logprob=True,
+            use_accuracy=False,
+            use_lang=getattr(args, 'use_lang', False),
+        ), 
+        axis=1
+    )
 
-                collected_responses[idx]["query"] = input_text(sample)
-                collected_responses[idx]["ground_truth"] = sample["ground_truth"]
-                for step in sample["step"]:
-                    sampled_text = step["completion"]
-                    sampled_acc = step["eval"]["acc"]
-                    collected_responses[idx][response_key].extend(sampled_text)
-                    collected_responses[idx][score_key].extend(sampled_acc)
+    # generate_df['output_candidates'] = generate_df.apply(lambda row: from_completions(row), axis=1)
+    generate_df['output_candidates'] = generate_df.apply(lambda row: from_key(row, "answer"), axis=1)
+    # df['output_selected'] = generate_df.apply(lambda row: row["output_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
+    df['output_selected'] = generate_df.apply(
+        lambda row: select_best_candidate(
+            row, 
+            col_name="output_candidates",
+            use_logprob=True,
+            use_accuracy=getattr(args, 'use_accuracy', False),
+            use_lang=getattr(args, 'use_lang', False),
+        ), 
+        axis=1
+    )
 
-    _rank_response = partial(rank_response, lang=lang_id)
-    result_list = []
-    for idx in tqdm(range(len(collected_responses))):
-        # Skip if no responses are correct
-        if sum(collected_responses[idx]["prompted_score"]) == 0:
-            continue
+    # Post Processing
+    df['input'] = df.apply(lambda row: [{"role": "user", "content": row["input_selected"]}], axis=1)
+    df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
+    df['messages'] = df.apply(lambda row: system_message + row['input'] + row['output'], axis=1)
 
-        # query = process_query(collected_responses[idx]["query"], lang=lang_id)
-        query_text = collected_responses[idx]["query"]
-        query = [{"role": "user", "content": query_text}]
-        ground_truth = collected_responses[idx]["ground_truth"]
-        responses = collected_responses[idx]["prompted_response"]+collected_responses[idx]["default_response"]
-        scores = collected_responses[idx]["prompted_score"]+collected_responses[idx]["default_score"]
-        preferred, dispreferred = _rank_response(
-            input_text=query_text,
-            response=responses,
-            score=scores,
-        )
+    df['raw_prompt'] = df.apply(
+        lambda row: [
+            {"role": "system", "content": row["input_selected"]},
+            {"role": "user", "content": row["input_selected"]},
+            ],
+        axis=1
+    )
 
-        if sft == False and len(dispreferred) == 0:
-            print(f"Skipping idx {idx} as no dispreferred responses found")
-            continue
+    df['reward_model'] = generate_df.apply(
+        lambda row: {
+            "ground_truth": row["ground_truth"]
+        },
+        axis=1
+    )
 
-        max_samples = 1
-        preferred = preferred.iloc[:max_samples]
-        dispreferred = dispreferred.iloc[:max_samples]
+    df["extra_info"] = df.apply(
+        lambda row: {
+            "ground_truth": row["reward_model"]["ground_truth"],
+            "use_lang": use_lang,
+            "use_accuracy": use_accuracy,
+            "lang": lang_code,
+        }, 
+        axis=1
+    )
 
-        line = {"ground_truth": ground_truth, "question": query}
+    # df = df[['input', 'output']]
+    # df = df[['messages']]
 
-        if sft:
-            for idx_0 in range(len(preferred)):
-                response_1, *_ = preferred.iloc[idx_0]
+    df.sample(frac=1).reset_index(drop=True)
+    task_size = len(df)
+    train_size = int(task_size * 0.8)
+    valid_size = int(task_size * 0.1)
+    test_size = int(task_size * 0.1)
+    if max_samples == -1:
+        train_df = df.iloc[:train_size]
+    else:
+        train_df = df.iloc[:min(train_size, max_samples)]
+    valid_df = df.iloc[train_size:train_size + valid_size]
+    test_df = df.iloc[-test_size-1:]
 
-                if not as_string:
-                    response_1 = [{"role": "assistant", "content": response_1}]
-                preference_data.append({**line, "response_i": response_1})
-        else:
-            for idx_0 in range(len(preferred)):
-                for idx_1 in range(len(dispreferred)):
+    print(train_df.head())
 
-                    response_1, *_ = preferred.iloc[idx_0]
-                    response_2, *_ = dispreferred.iloc[idx_1]
-
-                    if not as_string:
-                        response_1 = [{"role": "assistant", "content":response_1}]
-                        response_2 = [{"role": "assistant", "content":response_2}]
-
-                    preference_data.append({**line, "response_i": response_1, "response_j": response_2})
-
-    random.shuffle(preference_data)
-    train_split = int(len(preference_data) * 0.9)
-
-    train_data = preference_data[:train_split]
-    test_data = preference_data[train_split:]
-
-    with jsonlines.open(os.path.join(output_path, "train.jsonl"), mode='w') as writer:
-        writer.write_all(train_data)
-
-    with jsonlines.open(os.path.join(output_path, "test.jsonl"), mode='w') as writer:
-        writer.write_all(test_data)
+    os.makedirs(output_path, exist_ok=True)
+    train_df.to_parquet(os.path.join(output_path, "train.parquet"))
+    valid_df.to_parquet(os.path.join(output_path, "valid.parquet"))
+    test_df.to_parquet(os.path.join(output_path, "test.parquet"))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--iteration', type=int, default=0)
-    parser.add_argument('--lang', type=str)
-    parser.add_argument('--task', type=str)
-
-    parser.add_argument('--input_path', type=str)
+    parser.add_argument('--translate_path', type=str)
+    parser.add_argument('--generate_path', type=str)
     parser.add_argument('--output_path', type=str)
-    parser.add_argument('--as_string', action='store_true', default=False)
-    parser.add_argument('--sft', action='store_true', default=False)
+    parser.add_argument('--max_samples', type=int, default=1000)
+    parser.add_argument('--use_accuracy', action='store_true', default=False)
+    parser.add_argument('--use_lang', action='store_true', default=False)
+    parser.add_argument('--lang_code', type=str, default='id', help='Language code for the responses (default: id for Indonesian)')
     args = parser.parse_args()
-    construct_preference(
-        args.iteration,
-        args.lang,
-        args.task,
-        args.input_path,
+    construct_dataframe(
+        args.translate_path,
+        args.generate_path,
         args.output_path,
-        as_string=args.as_string,
-        sft=args.sft,
+        max_samples=args.max_samples,
+        use_accuracy=args.use_accuracy,
+        use_lang=args.use_lang,
+        lang_code=args.lang_code,
     )
