@@ -2,8 +2,16 @@
 
 Bootstrapping language model capability in non-English languages
 
+## Constructing Dataset
+
+1.  Generate traces
+2.  Choose based on reward
+2b. Translate
+3.  Train on traces
 
 ## Training
+
+### SFT
 
 ```
 python -m lang_boot.main \
@@ -19,3 +27,4 @@ python -m lang_boot.main \
     --n_samples 4000 \
     --serve
 ```
+### GRPO
