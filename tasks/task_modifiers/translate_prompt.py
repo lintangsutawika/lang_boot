@@ -37,12 +37,12 @@ def get_longest_response(x):
 
 @register_task("ind_translate")
 class INDTranslateTask(YevalTask):
-    system_message="You are a helpful assistant that can translate from English to Indonesian. Start your translation after ####"
+    system_message="You are a helpful assistant that can translate from English to Indonesian."
     user_message=lambda x: f"English Query:\n\n```\n{x}\n```\n\nIndonesian Translation:\n\n"
     # postprocessor=lambda x: x.replace("####", "").strip().split("\n\n")[0].strip()
     postprocessor=get_longest_response
     sampling_args={
-        "extra_body":{"guided_regex": "####(.*)"},
+        # "extra_body":{"guided_regex": "####(.*)"},
         "n": 4,
         "temperature": 1.0,
         "logprobs": True,
@@ -53,19 +53,19 @@ class INDTranslateTask(YevalTask):
 
 @register_task("jpn_translate")
 class JPNTranslateTask(INDTranslateTask):
-    system_message="You are a helpful assistant that can translate from English to Japanese. Start your translation after ####"
+    system_message="You are a helpful assistant that can translate from English to Japanese."
     user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Japanese Translation:\n\n"
     evaluation={"lang": partial(lang_content, lang="ja")}
 
 @register_task("zho_translate")
 class JPNTranslateTask(INDTranslateTask):
-    system_message="You are a helpful assistant that can translate from English to Chinese. Start your translation after ####"
+    system_message="You are a helpful assistant that can translate from English to Chinese."
     user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Chinese Translation:\n\n"
     evaluation={"lang": partial(lang_content, lang="zh")}
 
 @register_task("fra_translate")
 class JPNTranslateTask(INDTranslateTask):
-    system_message="You are a helpful assistant that can translate from English to French. Start your translation after ####"
+    system_message="You are a helpful assistant that can translate from English to French."
     user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"French Translation:\n\n"
     evaluation={"lang": partial(lang_content, lang="fr")}
 
