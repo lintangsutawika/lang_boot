@@ -178,20 +178,23 @@ class OpenR1Math220KTask(YevalTask):
     test_split="train"
     evaluation={"score": lambda x,y: -1}
 
-# @register_task("translate_open_r1_input")
+@register_task("open_r1_math_220k_problem")
 class OpenR1Math220KTask(YevalTask):
     data_path="open-r1/OpenR1-Math-220k"
     data_name="default"
-    input_text=lambda x: "\n".join(input_fewshot_examples)+"\nExample in English:\n"+x['problem']+"\n##END##\nExample in Bahasa Indonesia:\n"
-    output_text=lambda x: -1
+    input_text=lambda x: x["problem"]
+    output_text=lambda x: x["answer"]
     test_split="train"
-    sampling_args={"stop": ["##END##"]}
-    evaluation={"score": lambda x,y: -1}
+    # evaluation={"score": lambda x,y: -1}
 
-# @register_task("translate_open_r1_reasoning")
-class OpenR1220KReasoningTraces(OpenR1Math220KTask):
-    input_text=lambda x: "\n".join(reasoning_fewshot_examples)+"\nExample in English:\n"+x['solution']+"\n##END##\nExample in Bahasa Indonesia:\n"
-    # input_text=lambda x: x['solution']
+@register_task("open_r1_math_220k_solution")
+class OpenR1Math220KTask(YevalTask):
+    data_path="open-r1/OpenR1-Math-220k"
+    data_name="default"
+    input_text=lambda x: x["solution"]
+    output_text=lambda x: x["answer"]
+    test_split="train"
+    # evaluation={"score": lambda x,y: -1}
 
 if __name__ == "__main__":
     pass
