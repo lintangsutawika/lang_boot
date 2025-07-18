@@ -28,3 +28,12 @@ python -m lang_boot.main \
     --serve
 ```
 ### GRPO
+
+```
+CHECKPOINT_PATH=/data/user_data/lsutawik/05-lang-rl/checkpoints/
+bash lang_boot/scripts/train_grpo_privilaged.sh \
+	${MODEL_PATH} \
+	${N_ROLLOUTS}$ \
+	${DATA_PATH}$ \
+	${SAVE_MODEL_PATH}$
+```
