@@ -22,6 +22,13 @@ class BaseBoxTask(YevalTask):
     postprocessor=get_boxed_answer
     logging=log_logprob
 
+@register_task("eng_generate_traces")
+class EngReasonBoxTask(BaseBoxTask):
+    user_message=lambda x: f"{x}"+"\nReason step by step and put your final answer within \\boxed{}."
+    postprocessor=None
+    evaluation={"lang": partial(lang_content, lang="en")}
+    sample_agg_fn={"lang": lambda x: x}
+
 @register_task("ind_generate_traces")
 class IndReasonBoxTask(BaseBoxTask):
     user_message=lambda x: f"{x}"+"\nBerpikir langkah demi langkah dan tuliskan jawaban akhir di dalam \\boxed{}."
