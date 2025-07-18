@@ -3,7 +3,7 @@
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
 #SBATCH --partition=preempt
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:L40S:1
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
 #SBATCH --mem=512G
@@ -23,16 +23,10 @@ TP_SIZE="${6:-1}"
 # Use TP_SIZE 4 for >32B Models
 
 TASK_LIST=(
-    mgsm_eng
     mgsm_$LANGUAGE
-    # sea_eval_cross_mmlu_$LANGUAGE
-    # sea_eval_cross_logiqa_$LANGUAGE
-    # tydiqa_goldp_$LANGUAGE
 )
 
 PROMPT_LANG_LIST=(
-    eng_reason
-    eng_reason_in_${LANGUAGE}
     ${LANGUAGE}_reason
 )
 
@@ -51,7 +45,7 @@ PROMPT_PLACEMENT_LIST=(
     "after"
 )
 
-MAX_TOKEN=4096
+MAX_TOKEN=8192
 vllm serve $MODEL \
     --port ${PORT} \
     --max_model_len ${MAX_TOKEN} \
@@ -75,13 +69,13 @@ do
                     do
                     yeval \
                         --model $MODEL \
-                        --sample_args "temperature=0.6,top_p=0.9" \
+                        --sample_args "temperature=0" \
                         --task "${TASK}t//${PROMPT}" \
                         --include_path lang_boot/tasks/ \
                         --api_base "http://localhost:${PORT}/v1" \
                         --run_name $MODEL:$TASK:$P_LANG:$P_VAR:$P_ANS:$P_PLC:$N \
                         --trust_remote_code \
-                        --output_path ./eval_scores/ $OTHER_ARGS
+                        --output_path ./scores/ $OTHER_ARGS
                     done
                 done
             done
@@ -90,3 +84,4 @@ do
 done
 pkill vllm
 sleep 2m
+
