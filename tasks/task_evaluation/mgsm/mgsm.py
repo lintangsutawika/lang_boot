@@ -24,23 +24,51 @@ class MGSMTask(YevalTask):
     evaluation={"accuracy": math_eval}
     postprocessor=get_boxed_answer
 
-@register_task("mgsm_eng")
+@register_task("mgsm_bn")
+class MGSM_BN_Task(MGSMTask):
+    data_name="bn"
+
+@register_task("mgsm_de")
+class MGSM_DE_Task(MGSMTask):
+    data_name="de"
+
+@register_task("mgsm_en")
 class MGSM_EN_Task(MGSMTask):
     data_name="en"
 
-@register_task("mgsm_zho")
-class MGSM_ZH_Task(MGSMTask):
-    data_name="zh"
+@register_task("mgsm_es")
+class MGSM_ES_Task(MGSMTask):
+    data_name="es"
 
-@register_task("mgsm_jpn")
-class MGSM_JA_Task(MGSMTask):
-    data_name="ja"
-
-@register_task("mgsm_fra")
+@register_task("mgsm_fr")
 class MGSM_FR_Task(MGSMTask):
     data_name="fr"
 
-@register_task("mgsm_ind")
+@register_task("mgsm_ja")
+class MGSM_JA_Task(MGSMTask):
+    data_name="ja"
+
+@register_task("mgsm_ru")
+class MGSM_RU_Task(MGSMTask):
+    data_name="ru"
+
+@register_task("mgsm_sw")
+class MGSM_SW_Task(MGSMTask):
+    data_name="sw"
+
+@register_task("mgsm_te")
+class MGSM_TW_Task(MGSMTask):
+    data_name="te"
+
+@register_task("mgsm_th")
+class MGSM_TH_Task(MGSMTask):
+    data_name="th"
+
+@register_task("mgsm_zh")
+class MGSM_ZH_Task(MGSMTask):
+    data_name="zh"
+
+@register_task("mgsm_id")
 class MGSM_ID_Task(MGSMTask):
     data_path="json"
     data_name=None
