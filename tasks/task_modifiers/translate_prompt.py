@@ -35,39 +35,90 @@ def get_longest_response(x):
             chosen = candidate
     return chosen.strip()
 
-@register_task("ind_translate")
-class INDTranslateTask(YevalTask):
-    system_message="You are a helpful assistant that can translate from English to Indonesian."
-    user_message=lambda x: f"English Query:\n\n```\n{x}\n```\n\nIndonesian Translation:\n\n"
-    # postprocessor=lambda x: x.replace("####", "").strip().split("\n\n")[0].strip()
+class BaseTranslateTask(YevalTask):
+    # system_message="You are a helpful assistant that can translate from English to Indonesian."
+    # user_message=lambda x: f"English Query:\n\n```\n{x}\n```\n\nIndonesian Translation:\n\n"
     postprocessor=get_longest_response
     sampling_args={
-        # "extra_body":{"guided_regex": "####(.*)"},
         "n": 4,
         "temperature": 1.0,
         "logprobs": True,
         }
-    evaluation={"lang": partial(lang_content, lang="id")}
+    # evaluation={"lang": partial(lang_content, lang="id")}
     sample_agg_fn={"lang": lambda x: x}
     logging=log_logprob
 
-@register_task("jpn_translate")
-class JPNTranslateTask(INDTranslateTask):
+@register_task("bn_translate")
+class BNTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Bengali."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Bengali Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="bn")}
+
+@register_task("de_translate")
+class DETranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to German."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"German Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="de")}
+
+@register_task("en_translate")
+class ENTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to English."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"English Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="en")}
+
+@register_task("es_translate")
+class ESTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Spanish."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Spanish Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="es")}
+
+@register_task("fr_translate")
+class FRTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to French."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"French Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="fr")}
+
+@register_task("ja_translate")
+class JATranslateTask(BaseTranslateTask):
     system_message="You are a helpful assistant that can translate from English to Japanese."
     user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Japanese Translation:\n\n"
     evaluation={"lang": partial(lang_content, lang="ja")}
 
-@register_task("zho_translate")
-class JPNTranslateTask(INDTranslateTask):
+@register_task("ru_translate")
+class RUTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Russian."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Russian Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="ru")}
+
+@register_task("sw_translate")
+class SWTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Swahili."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Swahili Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="sw")}
+
+@register_task("te_translate")
+class TWTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Telugu."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Telugu Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="te")}
+
+@register_task("th_translate")
+class THTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Thai."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Thai Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="th")}
+
+@register_task("zh_translate")
+class JPNTranslateTask(BaseTranslateTask):
     system_message="You are a helpful assistant that can translate from English to Chinese."
     user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Chinese Translation:\n\n"
     evaluation={"lang": partial(lang_content, lang="zh")}
 
-@register_task("fra_translate")
-class JPNTranslateTask(INDTranslateTask):
-    system_message="You are a helpful assistant that can translate from English to French."
-    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"French Translation:\n\n"
-    evaluation={"lang": partial(lang_content, lang="fr")}
+@register_task("id_translate")
+class IDTranslateTask(BaseTranslateTask):
+    system_message="You are a helpful assistant that can translate from English to Indonesian."
+    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Indonesian Translation:\n\n"
+    evaluation={"lang": partial(lang_content, lang="id")}
 
 @register_task("default")
 class TranslateTask(YevalTask):
