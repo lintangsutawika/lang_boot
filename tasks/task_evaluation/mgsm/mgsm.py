@@ -12,17 +12,21 @@ from yeval.response import (
     )
 
 from yeval.metrics import math_eval
+from yeval.log.usage import log_logprob
 from yeval.response.math_responses import get_boxed_answer
+
+from lang_boot.utils import math_eval_with_postprocessing
 
 path = os.path.dirname(__file__)
 
 class MGSMTask(YevalTask):
     data_path="juletxara/mgsm"
-    input_text=lambda x: f"Question:\n{x['question']}\nAnswer:"
+    input_text=lambda x: x["question"]
     output_text=lambda x: x["answer_number"]
     test_split="test"
-    evaluation={"accuracy": math_eval}
-    postprocessor=get_boxed_answer
+    evaluation={"accuracy": math_eval_with_postprocessing}
+    sample_agg_fn={"accuracy": lambda x: x}
+    logging=log_logprob
 
 @register_task("mgsm_bn")
 class MGSM_BN_Task(MGSMTask):
