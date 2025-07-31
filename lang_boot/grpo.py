@@ -43,8 +43,6 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto
 from verl.single_controller.base import Worker
 from verl.single_controller.ray import RayClassWithInitArgs, RayResourcePool, RayWorkerGroup
 from verl.single_controller.ray.base import create_colocated_worker_cls
-from verl.trainer.ppo import core_algos
-from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.metric_utils import (
     compute_data_metrics,
     compute_throughout_metrics,
@@ -61,21 +59,42 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seqlen_unbalance
 from verl.utils.torch_functional import masked_mean, postprocess_data
 from verl.utils.tracking import ValidationGenerationsLogger
-
+from verl.trainer.ppo.core_algos import AdvantageEstimator, agg_loss
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
 from verl.trainer.ppo.ray_trainer import (
-    AdvantageEstimator,
+    # AdvantageEstimator,
     RayPPOTrainer,
     apply_kl_penalty,
     compute_advantage,
     compute_response_mask,
 )
 
+def extract_boxed_content(text):
+    match = list(re.finditer(r'\\boxed\{([^}]+)\}', text))
+    return match[-1].group(1) if match else None
+
 class RayGRPOTrainer(RayPPOTrainer):
 
     def _switch_chat_template(self, data: DataProto, n_rollouts=16, n_compare=None):
         src_max_length = data.batch["attention_mask"].shape[-1]
+
+        system_message = """\
+You are a helpful assistant. You will be given two responses to compare. \
+output "A" if the first response is better \
+and "B" if the second response is better. \
+Think step by step before answering and output your answer in \\boxed{}.
+"""
+
+#         system_message = """\
+# You are a helpful assistant. You will be given two responses to compare. \
+# Based on the query and the English response, \
+# which of the two responses better aligns with the English response? \
+# Answer with "A" if the first response is better \
+# and "B" if the second response is better. \
+# Think about the query and the responses carefully. \
+# You should output your answer in \\boxed{}.
+# """
 
         rm_input_ids = []
         rm_attention_mask = []
@@ -97,10 +116,8 @@ class RayGRPOTrainer(RayPPOTrainer):
 
         for idx, (i, j) in enumerate(pairwise_idx):
             # extract raw prompt
-            if isinstance(data.non_tensor_batch["raw_prompt"][i], list):
-                chat: list = data.non_tensor_batch["raw_prompt"][i]
-            else:
-                chat: list = data.non_tensor_batch["raw_prompt"][i].tolist()
+            base_query = data.non_tensor_batch["input_selected"][i]
+            # eng_response = data.non_tensor_batch["eng_output_selected"][i]
 
             response_dict = {}
             for idx_resp, x in zip(["A", "B"],[i, j]):
@@ -117,12 +134,11 @@ class RayGRPOTrainer(RayPPOTrainer):
 
                 response_dict[idx_resp] = response
 
-            for idx_msg, message in enumerate(chat):
-                if message["role"] == "user":
-                    user_prompt = message["content"]
-                    break
-
-            chat[idx_msg] = {"role": "user", "content": user_prompt.format(**response_dict)}
+            chat = [
+                {"role": "system", "content": system_message},
+                {"role": "user", "content": f"Query:\n{base_query}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
+                # {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
+            ]
 
             prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False)
             # if self.rank == 0 and idx == 0:
@@ -231,6 +247,10 @@ class RayGRPOTrainer(RayPPOTrainer):
                     non_tensor_batch_keys=non_tensor_batch_keys_to_pop,
                 )
 
+                # pass global_steps to trace
+                gen_batch.meta_info["global_steps"] = self.global_steps
+                gen_batch = gen_batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 with marked_timer("step", timing_raw):
@@ -304,15 +324,19 @@ class RayGRPOTrainer(RayPPOTrainer):
                             n_rollouts=self.config.actor_rollout_ref.rollout.n,
                             n_compare=self.config.actor_rollout_ref.rollout.compare,
                             )
-                        print("batch size", batch.batch.batch_size[0])
-                        print("judge_batch size", judge_batch.batch.batch_size[0])
                         n_rollouts = self.config.actor_rollout_ref.rollout.n
                         n_compare = self.config.actor_rollout_ref.rollout.compare
-                        print("n_rollouts size", n_rollouts)
-                        print("n_compare size", n_compare)
+
+                        if self.global_steps == 1:
+                            print("batch size", batch.batch.batch_size[0])
+                            print("judge_batch size", judge_batch.batch.batch_size[0])
+                            print("n_rollouts size", n_rollouts)
+                            print("n_compare size", n_compare)
+
                         judge_batch.meta_info["validate"] = True
                         judge_output = self.actor_rollout_wg.generate_sequences(judge_batch)
                         judge_responses = self.tokenizer.batch_decode(judge_output.batch["responses"], skip_special_tokens=True)
+                        # print("judge_responses", judge_responses[0])
 
                         batch_size = list(range(batch.batch.batch_size[0]))
                         pairwise_chunks = [batch_size[i:i+n_rollouts] for i in range(0, len(batch_size), n_rollouts)]
@@ -325,6 +349,7 @@ class RayGRPOTrainer(RayPPOTrainer):
                                 pairwise_idx.extend([(i,j) for j in random.sample(_chunk, n_compare)])
 
                         response_idx = {}
+                        _idx = 0
                         for (i, j), response in zip(pairwise_idx, judge_responses):
                             winning_response = extract_boxed_content(response)
                             if winning_response == "A":
@@ -338,17 +363,24 @@ class RayGRPOTrainer(RayPPOTrainer):
                             else:
                                 response_idx[i] = [score]
 
+                            if (_idx == 0) and (score == 1.0):
+                                print("response", response)
+                                print("winning_response", winning_response)
+                                _idx = 1
+
+                        # print("response_idx", response_idx)
                         response_scores = torch.tensor([sum(response_idx[i])/len(response_idx[i]) for i in range(len(response_idx))])
+                        print("response_scores", response_scores[:10])
                         token_level_scores = _expand_to_token_level(batch, response_scores)
                         reward_tensor = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
                         reward_tensor = reward_tensor.to("cpu")
-                        batch = batch.union(reward_tensor)
+                        # batch = batch.union(reward_tensor)
 
-                        if self.config.reward_model.launch_reward_fn_async:
-                            future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-                        else:
-                            print("compute reward")
-                            reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                        # if self.config.reward_model.launch_reward_fn_async:
+                        #     future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
+                        # else:
+                        #     print("compute reward")
+                        #     reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -403,13 +435,13 @@ class RayGRPOTrainer(RayPPOTrainer):
 
                     with marked_timer("adv", timing_raw, color="brown"):
                         # we combine with rule-based rm
-                        reward_extra_infos_dict: dict[str, list]
-                        if self.config.reward_model.launch_reward_fn_async:
-                            reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        # reward_extra_infos_dict: dict[str, list]
+                        # if self.config.reward_model.launch_reward_fn_async:
+                        #     reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
                         batch.batch["token_level_scores"] = reward_tensor
 
-                        if reward_extra_infos_dict:
-                            batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
+                        # if reward_extra_infos_dict:
+                        #     batch.non_tensor_batch.update({k: np.array(v) for k, v in reward_extra_infos_dict.items()})
 
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
@@ -418,6 +450,8 @@ class RayGRPOTrainer(RayPPOTrainer):
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
+                        print("token_level_rewards")
+                        print(batch.batch["token_level_rewards"])
                         # compute advantages, executed on the driver process
 
                         norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
@@ -429,7 +463,7 @@ class RayGRPOTrainer(RayPPOTrainer):
                             lam=self.config.algorithm.lam,
                             num_repeat=self.config.actor_rollout_ref.rollout.n,
                             norm_adv_by_std_in_grpo=norm_adv_by_std_in_grpo,
-                            multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
+                            # multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
                             config=self.config.algorithm,
                         )
 
