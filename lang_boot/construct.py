@@ -19,13 +19,6 @@ from langdetect import detect_langs
 # TODO Choose reward models
 # df.apply(lambda row: row.step[0]['completion'][row['logprob'].index(max(row['logprob']))], axis=1)
 
-lang_map = {
-    "eng": "en",
-    "ind": "id",
-    "jpn": "ja",
-    "zho": "zh",
-}
-
 def from_key(x, key):
     return x[key] if key in x else None
 
@@ -74,6 +67,9 @@ def select_best_candidate(row, col_name="input_candidates", use_logprob=True, us
     candidates_df["score"] = (-1/candidates_df["logprob"]) * candidates_df["lang"] * candidates_df["accuracy"]
 
     candidates_df = candidates_df.sort_values(by="score", ascending=False)
+
+    if len(candidates_df[candidates_df["score"] > 0]) == 0:
+        return "None"
     
     return candidates_df.iloc[0]['candidate']
 
@@ -107,7 +103,8 @@ def select_best_candidate(row, col_name="input_candidates", use_logprob=True, us
 
 #     return preferred, dispreferred
 
-system_message = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}]
+# system_message = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}]
+system_message = [{"role": "system", "content": "Think about it step by step and give your answer at the end in \\boxed{}."}]
 
 def construct_dataframe(
     translate_path, generate_path, output_path,
@@ -148,13 +145,12 @@ def construct_dataframe(
     )
 
     # Post Processing
-    df['input'] = df.apply(lambda row: [{"role": "user", "content": row["input_selected"]}], axis=1)
+    df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
     df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
-    df['messages'] = df.apply(lambda row: system_message + row['input'] + row['output'], axis=1)
-
+    df['messages'] = df.apply(lambda row: row['input'] + row['output'], axis=1)
+    df['reward_fn_key'] = output_path.split("/")[-1]
     df['raw_prompt'] = df.apply(
-        lambda row: [
-            {"role": "system", "content": row["input_selected"]},
+        lambda row: system_message + [
             {"role": "user", "content": row["input_selected"]},
             ],
         axis=1
@@ -179,7 +175,8 @@ def construct_dataframe(
 
     # df = df[['input', 'output']]
     # df = df[['messages']]
-
+    # Remove unsuccessful responses
+    df = df[(df["input_selected"] != "None") & (df["output_selected"] != "None")]
     df.sample(frac=1).reset_index(drop=True)
     task_size = len(df)
     train_size = int(task_size * 0.8)
