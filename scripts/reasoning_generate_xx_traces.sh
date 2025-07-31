@@ -2,7 +2,7 @@
 #SBATCH --job-name=langb
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=preempt
+#SBATCH --partition=general
 #SBATCH --gres=gpu:L40S:1
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
@@ -16,25 +16,30 @@
 # for LANG in de es ja id
 # do
 # PORT=$(( $RANDOM % (65535 - 1024 + 1) + 1024 ))
-# sbatch lang_boot/scripts/reasoning_translate_queries.sh Qwen/Qwen2.5-7B-Instruct \
-#     math_train \
+# sbatch lang_boot/scripts/reasoning_generate_xx_traces.sh \
+#     Qwen/Qwen2.5-7B-Instruct \
+#     gsm8k_train \
 #     ${LANG} \
+#     data/ \
 #     ${PORT}
 # done
 
-. ./lang_boot/config/.sft_env
+. ./lang_boot/config/.env
 
 MODEL=$1
 TASK=$2
 LANG=$3
-PORT="${4:-8000}"
-OTHER_ARGS=$5
-PP_SIZE="${6:-1}"
-TP_SIZE="${7:-1}"
+DATA_PATH=$4
+PORT="${5:-8000}"
+OTHER_ARGS=$6
+PP_SIZE="${7:-1}"
+TP_SIZE="${8:-1}"
 
 MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
+DATA_DIR="${DATA_PATH}/${MODEL_ALIAS}/raw_traces/${TASK}:${LANG}:translated:queries/output.jsonl"
 
-MAX_TOKEN=2048
+
+MAX_TOKEN=4096
 vllm serve $MODEL \
     --port ${PORT} \
     --max_model_len ${MAX_TOKEN} \
@@ -42,15 +47,18 @@ vllm serve $MODEL \
     --tensor_parallel_size ${TP_SIZE} \
     --distributed-executor-backend mp > ${TMPDIR}vllm.txt &
 
+    # --task "${TASK}t//${LANG}_generate_traces" \
+    # --task local_json_taskt//${LANG}_translate \
+
 yeval \
     --model $MODEL \
-    --task ${TASK}_problemt//${LANG}_translate \
+    --task json_highest_lang_${TASK}t//${LANG}_measure \
     --include_path lang_boot/tasks/ \
+    --data_kwargs "{'data_files': '${DATA_DIR}'}" \
     --api_base "http://localhost:${PORT}/v1" \
-    --run_name $TASK:$LANG:translated:queries \
+    --run_name $TASK:$LANG:generated:traces \
     --sample_args n=16,temperature=1.0,logprobs=True \
     --trust_remote_code \
     --output_path data/$MODEL_ALIAS/raw_traces/ $OTHER_ARGS
-
 pkill vllm
 sleep 2m

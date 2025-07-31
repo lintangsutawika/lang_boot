@@ -3,7 +3,7 @@
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
 #SBATCH --partition=preempt
-#SBATCH --gres=gpu:L40S:2
+#SBATCH --gres=gpu:L40S:1
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
 #SBATCH --mem=512G
@@ -12,12 +12,17 @@
 #SBATCH --overcommit
 
 # Example usage:
-# bash lang_boot/scripts/reasoning_traces_translate.sh \
+# for LANG in de fr es ru th te bn sw ja zh id
+# for LANG in de es ja id
+# do
+# PORT=$(( $RANDOM % (65535 - 1024 + 1) + 1024 ))
+# sbatch lang_boot/scripts/reasoning_translate_traces.sh \
 #     Qwen/Qwen2.5-7B-Instruct \
-#     gsm8k_train \
-#     ind \
+#     math_train \
+#     ${LANG} \
 #     data/ \
-#     8723 "" 1 2
+#     ${PORT}
+# done
 
 . ./lang_boot/config/.env
 
@@ -31,9 +36,9 @@ PP_SIZE="${7:-1}"
 TP_SIZE="${8:-1}"
 
 MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
-DATA_DIR="${DATA_PATH}/${MODEL_ALIAS}/raw_traces/generated:traces:${TASK}:eng/output.jsonl"
+DATA_DIR="${DATA_PATH}/${MODEL_ALIAS}/raw_traces/${TASK}:en:generated:traces/output.jsonl"
 
-MAX_TOKEN=8192
+MAX_TOKEN=4096
 vllm serve $MODEL \
     --port ${PORT} \
     --max_model_len ${MAX_TOKEN} \
@@ -43,12 +48,12 @@ vllm serve $MODEL \
 
 yeval \
     --model $MODEL \
-    --task local_json_taskt//${LANG}_translate \
+    --task json_highest_log_${TASK}t//${LANG}_translate \
     --include_path lang_boot/tasks/ \
     --data_kwargs "{'data_files': '${DATA_DIR}'}" \
     --api_base "http://localhost:${PORT}/v1" \
-    --run_name translated:traces:$TASK:$LANG \
-    --sample_args n=50,temperature=1.0,logprobs=True \
+    --run_name $TASK:$LANG:translated:traces \
+    --sample_args n=16,temperature=1.0,logprobs=True \
     --trust_remote_code \
     --output_path data/$MODEL_ALIAS/raw_traces/ $OTHER_ARGS
 
