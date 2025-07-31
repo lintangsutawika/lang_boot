@@ -24,6 +24,7 @@ from omegaconf import OmegaConf
 
 # from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 from lang_boot.grpo import RayPPOTrainer
+# from lang_boot.grpo import RayGRPOwPITrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
 
@@ -117,8 +118,8 @@ class TaskRunner:
         else:
             raise NotImplementedError
 
-        # from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
-        from lang_boot.ray_trainer import ResourcePoolManager, Role
+        from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
+        # from lang_boot.grpo import ResourcePoolManager, Role
 
         # Map roles to their corresponding remote worker classes.
         role_worker_mapping = {
