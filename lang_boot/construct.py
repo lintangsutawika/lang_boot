@@ -107,19 +107,20 @@ def select_best_candidate(row, col_name="input_candidates", use_logprob=True, us
 system_message = [{"role": "system", "content": "Think about it step by step and give your answer at the end in \\boxed{}."}]
 
 def construct_dataframe(
-    translate_path, generate_path, output_path,
+    query_path, response_path, output_path,
+    eng_response_path=None,
     max_samples=-1, keep_keys=None, use_accuracy=False, use_lang=False, lang_code="id",
     ):
 
     collected_responses = {}
 
-    translate_df = pd.read_json(os.path.join(translate_path, "output.jsonl"), lines=True)
-    generate_df = pd.read_json(os.path.join(generate_path, "output.jsonl"), lines=True)
+    query_df = pd.read_json(os.path.join(query_path, "output.jsonl"), lines=True)
+    response_df = pd.read_json(os.path.join(response_path, "output.jsonl"), lines=True)
 
     df = pd.DataFrame()
-    translate_df['input_candidates'] = translate_df.apply(lambda row: from_key(row, "answer"), axis=1)
-    # df['input_selected'] = translate_df.apply(lambda row: row["input_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
-    df['input_selected'] = translate_df.apply(
+    query_df['input_candidates'] = query_df.apply(lambda row: from_key(row, "answer"), axis=1)
+    # df['input_selected'] = query_df.apply(lambda row: row["input_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
+    df['input_selected'] = query_df.apply(
         lambda row: select_best_candidate(
             row, 
             col_name="input_candidates",
@@ -130,10 +131,10 @@ def construct_dataframe(
         axis=1
     )
 
-    # generate_df['output_candidates'] = generate_df.apply(lambda row: from_completions(row), axis=1)
-    generate_df['output_candidates'] = generate_df.apply(lambda row: from_key(row, "answer"), axis=1)
-    # df['output_selected'] = generate_df.apply(lambda row: row["output_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
-    df['output_selected'] = generate_df.apply(
+    # response_df['output_candidates'] = response_df.apply(lambda row: from_completions(row), axis=1)
+    response_df['output_candidates'] = response_df.apply(lambda row: from_key(row, "answer"), axis=1)
+    # df['output_selected'] = response_df.apply(lambda row: row["output_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
+    df['output_selected'] = response_df.apply(
         lambda row: select_best_candidate(
             row, 
             col_name="output_candidates",
@@ -143,6 +144,20 @@ def construct_dataframe(
         ), 
         axis=1
     )
+
+    if eng_response_path is not None:
+        eng_response_df = pd.read_json(os.path.join(eng_response_path, "output.jsonl"), lines=True)
+        eng_response_df['output_candidates'] = eng_response_df.apply(lambda row: from_key(row, "answer"), axis=1)
+        df['eng_output_selected'] = eng_response_df.apply(
+            lambda row: select_best_candidate(
+                row, 
+                col_name="output_candidates",
+                use_logprob=True,
+                use_accuracy=getattr(args, 'use_accuracy', True),
+                use_lang=getattr(args, 'use_lang', False),
+            ), 
+            axis=1
+        )
 
     # Post Processing
     df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
@@ -156,7 +171,7 @@ def construct_dataframe(
         axis=1
     )
 
-    df['reward_model'] = generate_df.apply(
+    df['reward_model'] = response_df.apply(
         lambda row: {
             "ground_truth": row["ground_truth"]
         },
@@ -199,8 +214,9 @@ def construct_dataframe(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--translate_path', type=str)
-    parser.add_argument('--generate_path', type=str)
+    parser.add_argument('--query_path', type=str)
+    parser.add_argument('--response_path', type=str)
+    parser.add_argument('--eng_response_path', type=str, default=None, help='Path to the English responses')
     parser.add_argument('--output_path', type=str)
     parser.add_argument('--max_samples', type=int, default=1000)
     parser.add_argument('--use_accuracy', action='store_true', default=False)
@@ -208,9 +224,10 @@ if __name__ == "__main__":
     parser.add_argument('--lang_code', type=str, default='id', help='Language code for the responses (default: id for Indonesian)')
     args = parser.parse_args()
     construct_dataframe(
-        args.translate_path,
-        args.generate_path,
+        args.query_path,
+        args.response_path,
         args.output_path,
+        eng_response_path=args.eng_response_path,
         max_samples=args.max_samples,
         use_accuracy=args.use_accuracy,
         use_lang=args.use_lang,
