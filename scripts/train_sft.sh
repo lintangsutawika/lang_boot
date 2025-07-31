@@ -11,12 +11,42 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --overcommit
 
-. ./lang_boot/config/.env
+. ./lang_boot/config/.sft_env
+# . ./lang_boot/config/.env
 
-MODEL=$1
-DATA_PATH=$2
-SAVE_MODEL_PATH=$3
-EPOCH=("${4:-5}")
+# for LANG in id de es ja
+# do
+#     for SOURCE in generated translated
+#     do
+    # sbatch lang_boot/scripts/train_sft.sh \
+    #     -s ${SOURCE} \
+    #     -m Qwen/Qwen2.5-7B-Instruct \
+    #     -l ${LANG} \
+    #     -t gsm8k_train \
+    #     -d data/Qwen-Qwen2.5-7B-Instruct/prep_traces/ \
+    #     -x /scratch/lsutawik/checkpoints/ \
+    #     -y /data/user_data/lsutawik/05-lang-rl/checkpoints/
+#     done
+# done
+
+while getopts ":s:m:l:t:d:x:y:" opt; do
+  case ${opt} in
+    s ) SOURCE=$OPTARG;;
+    m ) MODEL=$OPTARG;;
+    l ) LANGUAGE=$OPTARG;;
+    t ) TASK=$OPTARG;;
+    d ) DATA_PATH=$OPTARG;;
+    x ) TMP_SAVE_PATH=$OPTARG;;
+    y ) END_SAVE_PATH=$OPTARG;;
+    # \? ) echo "Usage: cmd [-u] [-p]";;
+  esac
+done
+
+MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
+RUN_NAME=${SOURCE}:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
+TRAIN_DATA_PATH=${DATA_PATH}${TASK}:${LANGUAGE}:${SOURCE}:-1/
+TMP_PATH=${TMP_SAVE_PATH}${RUN_NAME}
+rm -rf TMP_PATH
 
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 echo $DATA_PATH
@@ -25,14 +55,14 @@ torchrun \
     --rdzv-endpoint=0.0.0.0:29392 \
     -m verl.trainer.fsdp_sft_trainer \
         optim.lr=1e-5 \
-        data.train_files=${DATA_PATH}/train.parquet \
-        data.val_files=${DATA_PATH}/valid.parquet \
-        data.multiturn.messages_key=messages \
-        data.multiturn.enable=True \
+        data.train_files=${TRAIN_DATA_PATH}train.parquet \
+        data.val_files=${TRAIN_DATA_PATH}valid.parquet \
+        data.prompt_key=input_selected \
+        data.response_key=output_selected \
         +data.filter_overlong_prompts=True \
         data.truncation='left' \
         data.max_length=2048 \
-        data.train_batch_size=16 \
+        data.train_batch_size=32 \
         data.micro_batch_size_per_gpu=4 \
         model.partial_pretrain=${MODEL} \
         model.fsdp_config.model_dtype=bf16 \
@@ -41,12 +71,12 @@ torchrun \
         model.enable_gradient_checkpointing=True \
         model.use_liger=True \
         model.strategy=fsdp \
-        trainer.default_local_dir=${SAVE_MODEL_PATH} \
+        trainer.default_local_dir=${TMP_PATH} \
         trainer.project_name=lang_boot \
         trainer.experiment_name=sft \
-        trainer.total_epochs=${EPOCH} \
-        trainer.save_freq=20 \
-        trainer.total_training_steps=1000 \
+        trainer.save_freq=50 \
+        trainer.total_epochs=10 \
+        trainer.total_training_steps=500 \
         trainer.logger="['console']"
 
         # trainer.logger="['console', 'wandb']"
@@ -55,45 +85,15 @@ torchrun \
         # data.prompt_dict_keys=['question'] \
         # +data.response_dict_keys=['answer'] \
 
-# sbatch lang_boot/scripts/train_sft.sh \
-#     Qwen/Qwen2.5-7B-Instruct \
-#     data/Qwen-Qwen2.5-7B-Instruct/prep_traces/translated:gsm8k_train:ind:1000/ \
-#     /data/user_data/lsutawik/01-solution-path-routing/qwen2.5-7b:gsm8k_train:ind:1000:5/ \
-#     5
+for STEP in 500 450 400 350 300 250 200 150 100 50
+do
+    MODEL_STEP=global_step_${STEP}
+    PORT=$(( $RANDOM % (65535 - 1024 + 1) + 1024 ))
+    bash lang_boot/scripts/eval_mgsm.sh \
+        -s ${TMP_SAVE_PATH} \
+        -m ${RUN_NAME}/${MODEL_STEP} \
+        -l ${LANGUAGE} \
+        -r ${PORT} 
+done
 
-# sbatch lang_boot/scripts/train_sft.sh \
-#     Qwen/Qwen2.5-7B-Instruct \
-#     data/Qwen-Qwen2.5-7B-Instruct/prep_traces/translated:gsm8k_train:ind:5000/ \
-#     /data/user_data/lsutawik/01-solution-path-routing/qwen2.5-7b:gsm8k_train:ind:5000:1/ \
-#     1
-
-# for LANG in ind jpn zho
-# for LANG in ind
-# do
-#     for ACC in False True
-#     do
-#         for USE_LANG in False True
-#         do
-#             DATA_PATH="gsm8k_train:${LANG}:1000:logprob-True:acc-${ACC}:lang-${USE_LANG}"
-#             sbatch lang_boot/scripts/train_sft.sh \
-#                 Qwen/Qwen2.5-7B-Instruct \
-#                 data/Qwen-Qwen2.5-7B-Instruct/prep_traces/translated:${DATA_PATH}/ \
-#                 /data/user_data/lsutawik/05-lang-rl/checkpoints/qwen2.5-7b:${DATA_PATH}/ \
-#                 5
-#         done
-#     done
-# done
-
-# DATA_PATH="gsm8k_train:ind:1000"
-# bash lang_boot/scripts/train_sft.sh \
-#     Qwen/Qwen2.5-7B-Instruct \
-#     data/Qwen-Qwen2.5-7B-Instruct/prep_traces/translated:${DATA_PATH}/ \
-#     /data/user_data/lsutawik/05-lang-rl/checkpoints/qwen2.5-7b:${DATA_PATH}/ \
-#     5
-
-# DATA_PATH="gsm8k_train:ind:1000:logprob-True:acc-False:lang-False"
-# bash lang_boot/scripts/train_sft.sh \
-#     Qwen/Qwen2.5-7B-Instruct \
-#     data/Qwen-Qwen2.5-7B-Instruct/prep_traces/translated:${DATA_PATH}/ \
-#     /data/user_data/lsutawik/05-lang-rl/checkpoints/qwen2.5-7b:${DATA_PATH}/ \
-#     5
+mv ${TMP_PATH} ${END_SAVE_PATH}
