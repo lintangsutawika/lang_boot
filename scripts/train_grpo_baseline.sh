@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sft
+#SBATCH --job-name=grpo
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
 #SBATCH --partition=general
@@ -13,12 +13,19 @@
 
 . ./lang_boot/config/.env
 
-MODEL_PATH=$1
-N_ROLLOUTS=$2
-DATA_PATH=$3
-SAVE_MODEL_PATH=$4
+while getopts ":m:n:d:s:" opt; do
+  case ${opt} in
+    m ) MODEL=$OPTARG;;
+    n ) N_ROLLOUTS=$OPTARG;;
+    d ) DATA_PATH=$OPTARG;;
+    s ) SAVE_MODEL_PATH=$OPTARG;;
+    # \? ) echo "Usage: cmd [-u] [-p]";;
+  esac
+done
 
-python -m lang_boot.train_grpo \
+N_ROLLOUTS="${N_ROLLOUTS:-16}"
+
+python -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=${DATA_PATH}/train.parquet \
@@ -44,13 +51,12 @@ python -m lang_boot.train_grpo \
     actor_rollout_ref.actor.strategy=fsdp \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
-    actor_rollout_ref.actor.checkpoint.save_contents=['model', 'hf_model', 'optimizer', 'extra'] \
+    actor_rollout_ref.actor.checkpoint.save_contents=['model','hf_model','optimizer','extra'] \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${N_ROLLOUTS} \
-    +actor_rollout_ref.rollout.compare=8 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.strategy=fsdp2 \
@@ -59,9 +65,6 @@ python -m lang_boot.train_grpo \
     trainer.project_name='lang_boot' \
     trainer.experiment_name='grpo' \
     trainer.n_gpus_per_node=8 \
-    trainer.nnodes=1 \
-    trainer.val_before_train=True \
-    trainer.balance_batch=False \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.total_training_steps=100 \
