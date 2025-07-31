@@ -13,7 +13,7 @@
 
 . ./lang_boot/config/.env
 
-while getopts ":s:m:l:r:o:p:t:" opt; do
+while getopts ":s:m:l:r:o:p:t:e:" opt; do
   case ${opt} in
     s ) MODEL_PATH=$OPTARG;;
     m ) MODEL=$OPTARG;;
@@ -22,6 +22,7 @@ while getopts ":s:m:l:r:o:p:t:" opt; do
     o ) OTHER_ARGS=$OPTARG;;
     p ) PP_SIZE=$OPTARG;;
     t ) TP_SIZE=$OPTARG;;
+    e ) MODEL_SUFFIX=$OPTARG;;
     # \? ) echo "Usage: cmd [-p] [-m] [-l] [-o] [-pp] [-tp]";;
   esac
 done
@@ -39,7 +40,7 @@ PROMPT_LANG_LIST=(
 )
 
 MAX_TOKEN=2048
-vllm serve ${MODEL_PATH}${MODEL} \
+vllm serve ${MODEL_PATH}${MODEL}${MODEL_SUFFIX} \
     --port ${PORT} \
     --max_model_len ${MAX_TOKEN} \
     --pipeline_parallel_size ${PP_SIZE} \
@@ -54,7 +55,7 @@ do
         for N in 1
         do
             yeval \
-                --model ${MODEL_PATH}${MODEL} \
+                --model ${MODEL_PATH}${MODEL}${MODEL_SUFFIX} \
                 --sample_args n=16,temperature=1.0,logprobs=True \
                 --task "${TASK}t//${PROMPT}" \
                 --include_path lang_boot/tasks/ \
