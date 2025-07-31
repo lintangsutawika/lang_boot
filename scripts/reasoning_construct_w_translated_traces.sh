@@ -39,8 +39,9 @@ DATA_PATH=$3
 MAX_SAMPLES=$4
 
 python lang_boot/lang_boot/construct.py \
-    --translate_path ${DATA_PATH}/raw_traces/${TASK}:${LANG}:translated:queries/ \
-    --generate_path ${DATA_PATH}/raw_traces/${TASK}:${LANG}:translated:traces/ \
+    --query_path ${DATA_PATH}/raw_traces/${TASK}:${LANG}:translated:queries/ \
+    --response_path ${DATA_PATH}/raw_traces/${TASK}:${LANG}:generated:traces/ \
+    --eng_response_path ${DATA_PATH}/raw_traces/${TASK}:en:generated:traces/ \
     --output_path ${DATA_PATH}/prep_traces/${TASK}:${LANG}:translated:${MAX_SAMPLES}/ \
     --max_samples ${MAX_SAMPLES} \
     --lang_code ${LANG} \
