@@ -79,22 +79,21 @@ class RayGRPOTrainer(RayPPOTrainer):
     def _switch_chat_template(self, data: DataProto, n_rollouts=16, n_compare=None):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
+#         system_message = """\
+# You are a helpful assistant. You will be given two responses to compare. \
+# output "A" if the first response is better \
+# and "B" if the second response is better. \
+# Think step by step before answering and output your answer in \\boxed{}.
+# """
+
         system_message = """\
 You are a helpful assistant. You will be given two responses to compare. \
-output "A" if the first response is better \
+Based on the query and the English response, \
+which of the two responses better aligns with the English response? \
+Answer with "A" if the first response is better \
 and "B" if the second response is better. \
 Think step by step before answering and output your answer in \\boxed{}.
 """
-
-#         system_message = """\
-# You are a helpful assistant. You will be given two responses to compare. \
-# Based on the query and the English response, \
-# which of the two responses better aligns with the English response? \
-# Answer with "A" if the first response is better \
-# and "B" if the second response is better. \
-# Think about the query and the responses carefully. \
-# You should output your answer in \\boxed{}.
-# """
 
         rm_input_ids = []
         rm_attention_mask = []
@@ -117,7 +116,7 @@ Think step by step before answering and output your answer in \\boxed{}.
         for idx, (i, j) in enumerate(pairwise_idx):
             # extract raw prompt
             base_query = data.non_tensor_batch["input_selected"][i]
-            # eng_response = data.non_tensor_batch["eng_output_selected"][i]
+            eng_response = data.non_tensor_batch["eng_output_selected"][i]
 
             response_dict = {}
             for idx_resp, x in zip(["A", "B"],[i, j]):
@@ -136,15 +135,14 @@ Think step by step before answering and output your answer in \\boxed{}.
 
             chat = [
                 {"role": "system", "content": system_message},
-                {"role": "user", "content": f"Query:\n{base_query}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
-                # {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
+                # {"role": "user", "content": f"Query:\n{base_query}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
+                {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
             ]
 
             prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False)
-            # if self.rank == 0 and idx == 0:
-            if idx == 0:
-                # for debugging purpose
-                print(f"Switch template. chat:\n{prompt_with_chat_template}")
+            # if idx == 0:
+            #     # for debugging purpose
+            #     print(f"Switch template. chat:\n{prompt_with_chat_template}")
 
             # the maximum length is actually determined by the reward model itself
             max_length = self.config.get("max_length", src_max_length)
@@ -369,18 +367,22 @@ Think step by step before answering and output your answer in \\boxed{}.
                                 _idx = 1
 
                         # print("response_idx", response_idx)
-                        response_scores = torch.tensor([sum(response_idx[i])/len(response_idx[i]) for i in range(len(response_idx))])
-                        print("response_scores", response_scores[:10])
+                        # response_scores = torch.tensor([sum(response_idx[i])/len(response_idx[i]) for i in range(len(response_idx))])
+                        response_scores = torch.tensor([response_idx[i] for i in range(len(response_idx))], dtype=torch.float32).sum(dim=-1)
+                        print("response_scores", response_scores.sum())
+                        # print("response_scores", response_scores.sum(dim=-1).shape)
                         token_level_scores = _expand_to_token_level(batch, response_scores)
-                        reward_tensor = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
-                        reward_tensor = reward_tensor.to("cpu")
+                        # reward_tensor = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
+                        reward_tensor = token_level_scores.to("cpu")
                         # batch = batch.union(reward_tensor)
 
                         # if self.config.reward_model.launch_reward_fn_async:
                         #     future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
                         # else:
                         #     print("compute reward")
-                        #     reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                        #     # reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                        #     _, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
+                        #     print("reward_extra_infos_dict", reward_extra_infos_dict)
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
@@ -438,6 +440,7 @@ Think step by step before answering and output your answer in \\boxed{}.
                         # reward_extra_infos_dict: dict[str, list]
                         # if self.config.reward_model.launch_reward_fn_async:
                         #     reward_tensor, reward_extra_infos_dict = ray.get(future_reward)
+                        reward_extra_infos_dict = {}
                         batch.batch["token_level_scores"] = reward_tensor
 
                         # if reward_extra_infos_dict:
@@ -450,8 +453,6 @@ Think step by step before answering and output your answer in \\boxed{}.
                         else:
                             batch.batch["token_level_rewards"] = batch.batch["token_level_scores"]
 
-                        print("token_level_rewards")
-                        print(batch.batch["token_level_rewards"])
                         # compute advantages, executed on the driver process
 
                         norm_adv_by_std_in_grpo = self.config.algorithm.get("norm_adv_by_std_in_grpo", True)  # GRPO adv normalization factor
