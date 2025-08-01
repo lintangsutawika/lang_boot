@@ -163,7 +163,7 @@ def construct_dataframe(
     df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
     df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
     df['messages'] = df.apply(lambda row: row['input'] + row['output'], axis=1)
-    df['reward_fn_key'] = output_path.split("/")[-1]
+    df['data_source'] = output_path.split("/")[-1]
     df['raw_prompt'] = df.apply(
         lambda row: system_message + [
             {"role": "user", "content": row["input_selected"]},
