@@ -22,9 +22,7 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-# from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-from lang_boot.grpo import RayPPOTrainer
-# from lang_boot.grpo import RayGRPOwPITrainer
+from lang_boot.grpo import RayGRPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
 
