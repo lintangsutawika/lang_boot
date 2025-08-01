@@ -517,32 +517,21 @@ Think step by step before answering and output your answer in \\boxed{}.
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
 
-                            # local_global_step_folder = os.path.join(
-                            #     self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
-                            # )
+                            if self.config.trainer.get("use_gcs", False):
+                                import fsspec
 
-                            # gcs_path = simple_parse_args_string(self.config.trainer.file_system_kwargs)
-                            # if self.config.trainer.get("use_gcs", False):
-                            #     import fsspec
-                            #     print(simple_parse_args_string(self.config.trainer.file_system_kwargs))
-                            #     fs = fsspec.filesystem(
-                            #         "gcs",
-                            #         **simple_parse_args_string(self.config.trainer.file_system_kwargs) if self.config.trainer.file_system_kwargs else {}
-                            #     )
+                                fs = fsspec.filesystem("gcs",
+                                    project=self.config.trainer.gcs_project,
+                                    token=self.config.trainer.gcs_token
+                                )
+                                local_global_step_folder = os.path.join(
+                                    self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+                                )
 
-                            # self.fs.makedirs(local_global_step_folder, exist_ok=True)
-                            # result_file = os.path.join(run_path, "result.json")
-                            # with self.fs.open(result_file, 'w', encoding='utf-8') as file:
-                            #     json.dump(result_dict, file, ensure_ascii=False, indent=4)
-
-                            # try:
-                            #     output_file = os.path.join(run_path, "output.jsonl")
-                            #     with self.fs.open(output_file, "w") as file:
-                            #         jsonlines.Writer(file).write_all(output_json)
-
-                            # # Copy a directory from local to GCS
-                            # self.fs.copy(local_global_step_folder, gcs_path, recursive=True)
-
+                                fs.cp(
+                                    local_global_step_folder, 
+                                    self.config.trainer.gcs_path,
+                                    recursive=True)
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
