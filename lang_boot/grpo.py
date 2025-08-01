@@ -89,7 +89,8 @@ class RayGRPOTrainer(RayPPOTrainer):
         system_message = """\
 You are a helpful assistant. You will be given two responses to compare. \
 Based on the query and the English response, \
-which of the two responses better aligns with the English response? \
+which of the two responses are the better translation or is closest to the English response? \
+They must not be in English but in the language of the query. \
 Answer with "A" if the first response is better \
 and "B" if the second response is better. \
 Think step by step before answering and output your answer in \\boxed{}.
@@ -361,10 +362,10 @@ Think step by step before answering and output your answer in \\boxed{}.
                             else:
                                 response_idx[i] = [score]
 
-                            if (_idx == 0) and (score == 1.0):
-                                print("response", response)
-                                print("winning_response", winning_response)
-                                _idx = 1
+                            # if (_idx == 0) and (score == 1.0):
+                            #     print("response", response)
+                            #     print("winning_response", winning_response)
+                            #     _idx = 1
 
                         # print("response_idx", response_idx)
                         # response_scores = torch.tensor([sum(response_idx[i])/len(response_idx[i]) for i in range(len(response_idx))])
@@ -515,6 +516,33 @@ Think step by step before answering and output your answer in \\boxed{}.
                             print("Force saving checkpoint: ESI instance expiration approaching.")
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
+
+                            # local_global_step_folder = os.path.join(
+                            #     self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
+                            # )
+
+                            # gcs_path = simple_parse_args_string(self.config.trainer.file_system_kwargs)
+                            # if self.config.trainer.get("use_gcs", False):
+                            #     import fsspec
+                            #     print(simple_parse_args_string(self.config.trainer.file_system_kwargs))
+                            #     fs = fsspec.filesystem(
+                            #         "gcs",
+                            #         **simple_parse_args_string(self.config.trainer.file_system_kwargs) if self.config.trainer.file_system_kwargs else {}
+                            #     )
+
+                            # self.fs.makedirs(local_global_step_folder, exist_ok=True)
+                            # result_file = os.path.join(run_path, "result.json")
+                            # with self.fs.open(result_file, 'w', encoding='utf-8') as file:
+                            #     json.dump(result_dict, file, ensure_ascii=False, indent=4)
+
+                            # try:
+                            #     output_file = os.path.join(run_path, "output.jsonl")
+                            #     with self.fs.open(output_file, "w") as file:
+                            #         jsonlines.Writer(file).write_all(output_json)
+
+                            # # Copy a directory from local to GCS
+                            # self.fs.copy(local_global_step_folder, gcs_path, recursive=True)
+
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)

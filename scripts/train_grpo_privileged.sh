@@ -89,6 +89,6 @@ python -m lang_boot.train_grpo \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_training_steps=100 \
+    trainer.total_training_steps=200 \
     trainer.default_local_dir=${FULL_SAVE_PATH} \
     custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py
