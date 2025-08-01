@@ -45,7 +45,8 @@ FULL_SAVE_PATH=${SAVE_MODEL_PATH}/${RUN_NAME}
 LOGPROB_BS=16
 PPO_BS=16
 
-python -m verl.trainer.main_ppo \
+python -m lang_boot.main_grpo \
+    +trainer.privileged=False \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=${FULL_DATA_PATH}/train.parquet \
