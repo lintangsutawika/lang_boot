@@ -532,6 +532,8 @@ Think step by step before answering and output your answer in \\boxed{}.
                                     local_global_step_folder, 
                                     self.config.trainer.gcs_path,
                                     recursive=True)
+                                
+                                os.rmdir(local_global_step_folder)
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
