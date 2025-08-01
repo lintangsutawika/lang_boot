@@ -92,5 +92,3 @@ python -m lang_boot.train_grpo \
     trainer.total_training_steps=100 \
     trainer.default_local_dir=${FULL_SAVE_PATH} \
     custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py
-
-    # actor_rollout_ref.actor.checkpoint.save_contents=['model','hf_model','optimizer','extra'] \
