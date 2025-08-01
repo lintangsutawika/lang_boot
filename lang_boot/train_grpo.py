@@ -26,7 +26,7 @@ from lang_boot.grpo import RayGRPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
 
-@hydra.main(config_path="config", config_name="ppo_trainer", version_base=None)
+@hydra.main(config_path="config", config_name="grpo_trainer", version_base=None)
 def main(config):
     run_ppo(config)
 
@@ -170,7 +170,7 @@ class TaskRunner:
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
         # Initialize the PPO trainer.
-        trainer = RayPPOTrainer(
+        trainer = RayGRPOTrainer(
             config=config,
             tokenizer=tokenizer,
             processor=processor,
