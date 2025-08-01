@@ -172,17 +172,32 @@ class TaskRunner:
         if config.trainer.get("use_gcs", False):
             import fsspec
 
-            os.mkdir(config.trainer.default_local_dir, exist_ok=True)
+            os.makedirs(config.trainer.default_local_dir, exist_ok=True)
 
             fs = fsspec.filesystem("gcs",
-                project=self.config.trainer.gcs_project,
-                token=self.config.trainer.gcs_token
+                project=config.trainer.gcs_project,
+                token=config.trainer.gcs_token
             )
 
-            fs.cp(
-                config.trainer.gcs_path+"/",
-                config.trainer.default_local_dir+"/", 
-                recursive=True)
+            try:
+                latest_checkpoint = os.path.join(config.trainer.gcs_path, "latest_checkpointed_iteration.txt")
+                with fs.open(latest_checkpoint, "r") as file:
+                    latest_checkpointed_iteration = file.read().strip()
+
+                for file_name in ["latest_checkpointed_iteration.txt", f"global_step_{latest_checkpointed_iteration}"]:
+                    fs.get(
+                        os.path.join(
+                            config.trainer.gcs_path,
+                            file_name
+                            ),
+                        os.path.join(config.trainer.default_local_dir, ""),
+                        recursive=True
+                    )
+                print("Starting from the latest checkpointed iteration:", latest_checkpointed_iteration)
+
+            except:
+                latest_checkpointed_iteration = None
+                print("No previous checkpoint found, starting from scratch.")
 
         if config.trainer.get("privileged", False):
             print("Training with GRPO + privileged information.")

@@ -524,14 +524,15 @@ Think step by step before answering and output your answer in \\boxed{}.
                                     project=self.config.trainer.gcs_project,
                                     token=self.config.trainer.gcs_token
                                 )
+                                for file_name in ["latest_checkpointed_iteration.txt", f"global_step_{self.global_steps}"]:
+                                    fs.put(
+                                        os.path.join(self.config.trainer.default_local_dir, file_name),
+                                        os.path.join(self.config.trainer.gcs_path, ""),
+                                        recursive=True
+                                    )
                                 local_global_step_folder = os.path.join(
                                     self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
                                 )
-
-                                fs.cp(
-                                    local_global_step_folder, 
-                                    self.config.trainer.gcs_path,
-                                    recursive=True)
                                 
                                 os.rmdir(local_global_step_folder)
 
