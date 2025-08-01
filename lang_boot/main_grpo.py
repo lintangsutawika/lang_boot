@@ -169,6 +169,21 @@ class TaskRunner:
         val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor)
         train_sampler = create_rl_sampler(config.data, train_dataset)
 
+        if config.trainer.get("use_gcs", False):
+            import fsspec
+
+            os.mkdir(config.trainer.default_local_dir, exist_ok=True)
+
+            fs = fsspec.filesystem("gcs",
+                project=self.config.trainer.gcs_project,
+                token=self.config.trainer.gcs_token
+            )
+
+            fs.cp(
+                config.trainer.gcs_path+"/",
+                config.trainer.default_local_dir+"/", 
+                recursive=True)
+
         if config.trainer.get("privileged", False):
             print("Training with GRPO + privileged information.")
             # Initialize the PPO trainer.
