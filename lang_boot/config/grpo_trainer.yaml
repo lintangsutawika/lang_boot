@@ -1,0 +1,14 @@
+hydra:
+  searchpath:
+    - pkg://verl/trainer/config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+actor_rollout_ref:
+  # actor configs
+  actor:
+    # checkpoint configs
+    checkpoint:
+      save_contents: ['model', 'hf_model', 'optimizer', 'extra']
