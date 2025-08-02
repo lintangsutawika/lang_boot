@@ -73,77 +73,61 @@ def select_best_candidate(row, col_name="input_candidates", use_logprob=True, us
     
     return candidates_df.iloc[0]['candidate']
 
-# def rank_response(input_text, response, score, lang):
-
-#     response_i_list = []
-#     response_j_list = []
-
-#     response_dict = {
-#         "answers": [],
-#         "lang": [],
-#         "score": [],
-#         "overlap": [],
-#     }
-
-#     score_fn = partial(get_lang_score, lang=lang)
-#     results = map(score_fn, response)
-#     for s, (prediction, lang_prob) in zip(score, list(results)):
-#         response_dict["answers"].append(prediction)
-#         response_dict["lang"].append(lang_prob)
-#         response_dict["score"].append(s)
-
-#     all_responses = pd.DataFrame(response_dict)
-#     all_responses = all_responses.sort_values(by=['score', 'lang', 'overlap'], ascending=False)
-#     all_responses = all_responses.reset_index(drop=True)
-
-#     preferred = all_responses[(all_responses['lang'] > 0.5) & (all_responses['score'] == 1)]
-#     dispreferred = all_responses[(all_responses['lang'] <= 0.5)]
-#     dispreferred.loc[:, "lang"] = 1 - dispreferred.loc[:, "lang"]
-#     dispreferred = dispreferred.sort_values(by=['score', 'lang', 'logprob'], ascending=False)
-
-#     return preferred, dispreferred
 
 # system_message = [{"role": "system", "content": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."}]
 system_message = [{"role": "system", "content": "Think about it step by step and give your answer at the end in \\boxed{}."}]
 
 def construct_dataframe(
-    query_path, response_path, output_path,
+    query_path,
+    response_path=None,
+    output_path=None,
+    construct_en=False,
     eng_response_path=None,
     max_samples=-1, keep_keys=None, use_accuracy=False, use_lang=False, lang_code="id",
     ):
 
     collected_responses = {}
+    df = pd.DataFrame()
 
     query_df = pd.read_json(os.path.join(query_path, "output.jsonl"), lines=True)
-    response_df = pd.read_json(os.path.join(response_path, "output.jsonl"), lines=True)
+    if construct_en:
+        def _get_query(row):
+            for context_dict in row["step"][0]['full_input']:
+                if context_dict['role'] == 'user':
+                    return context_dict['content']
+                
+            return ""
+        
+        df['input_selected'] = query_df.apply(lambda row: _get_query(row), axis=1)
+    else:
+        query_df['input_candidates'] = query_df.apply(lambda row: from_key(row, "answer"), axis=1)
+        df['input_selected'] = query_df.apply(
+            lambda row: select_best_candidate(
+                row, 
+                col_name="input_candidates",
+                use_logprob=True,
+                use_accuracy=False,
+                use_lang=getattr(args, 'use_lang', False),
+            ), 
+            axis=1
+        )
 
-    df = pd.DataFrame()
-    query_df['input_candidates'] = query_df.apply(lambda row: from_key(row, "answer"), axis=1)
-    # df['input_selected'] = query_df.apply(lambda row: row["input_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
-    df['input_selected'] = query_df.apply(
-        lambda row: select_best_candidate(
-            row, 
-            col_name="input_candidates",
-            use_logprob=True,
-            use_accuracy=False,
-            use_lang=getattr(args, 'use_lang', False),
-        ), 
-        axis=1
-    )
-
-    # response_df['output_candidates'] = response_df.apply(lambda row: from_completions(row), axis=1)
-    response_df['output_candidates'] = response_df.apply(lambda row: from_key(row, "answer"), axis=1)
-    # df['output_selected'] = response_df.apply(lambda row: row["output_candidates"][row["logprob"].index(max(row["logprob"]))], axis=1)
-    df['output_selected'] = response_df.apply(
-        lambda row: select_best_candidate(
-            row, 
-            col_name="output_candidates",
-            use_logprob=True,
-            use_accuracy=getattr(args, 'use_accuracy', False),
-            use_lang=getattr(args, 'use_lang', False),
-        ), 
-        axis=1
-    )
+    if response_path is not None:
+        response_df = pd.read_json(os.path.join(response_path, "output.jsonl"), lines=True)
+        # response_df['output_candidates'] = response_df.apply(lambda row: from_completions(row), axis=1)
+        response_df['output_candidates'] = response_df.apply(lambda row: from_key(row, "answer"), axis=1)
+        df['output_selected'] = response_df.apply(
+            lambda row: select_best_candidate(
+                row, 
+                col_name="output_candidates",
+                use_logprob=True,
+                use_accuracy=getattr(args, 'use_accuracy', False),
+                use_lang=getattr(args, 'use_lang', False),
+            ), 
+            axis=1
+        )
+    else:
+        df['output_selected'] = "Empty"
 
     if eng_response_path is not None:
         eng_response_df = pd.read_json(os.path.join(eng_response_path, "output.jsonl"), lines=True)
@@ -219,6 +203,7 @@ if __name__ == "__main__":
     parser.add_argument('--eng_response_path', type=str, default=None, help='Path to the English responses')
     parser.add_argument('--output_path', type=str)
     parser.add_argument('--max_samples', type=int, default=1000)
+    parser.add_argument('--construct_en', action='store_true', default=False)
     parser.add_argument('--use_accuracy', action='store_true', default=False)
     parser.add_argument('--use_lang', action='store_true', default=False)
     parser.add_argument('--lang_code', type=str, default='id', help='Language code for the responses (default: id for Indonesian)')
@@ -227,6 +212,7 @@ if __name__ == "__main__":
         args.query_path,
         args.response_path,
         args.output_path,
+        construct_en=args.construct_en,
         eng_response_path=args.eng_response_path,
         max_samples=args.max_samples,
         use_accuracy=args.use_accuracy,
