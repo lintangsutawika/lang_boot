@@ -74,7 +74,34 @@ def extract_boxed_content(text):
     match = list(re.finditer(r'\\boxed\{([^}]+)\}', text))
     return match[-1].group(1) if match else None
 
-class RayGRPOTrainer(RayPPOTrainer):
+class CustomRayPPOTrainer(RayPPOTrainer):
+    def _save_checkpoint(self):
+        """Save checkpoint by calling the parent class method"""
+        super()._save_checkpoint()
+
+        if self.config.trainer.get("use_gcs", False):
+            import fsspec
+            import shutil
+
+            fs = fsspec.filesystem("gcs",
+                project=self.config.trainer.gcs_project,
+                token=self.config.trainer.gcs_token
+            )
+            for file_name in [f"global_step_{self.global_steps}", "latest_checkpointed_iteration.txt"]:
+                fs.put(
+                    os.path.join(self.config.trainer.default_local_dir, file_name),
+                    os.path.join(self.config.trainer.gcs_path, ""),
+                    recursive=True
+                )
+
+                local_global_step_folder = os.path.join(
+                    self.config.trainer.default_local_dir, file_name
+                )
+                
+                shutil.rmtree(local_global_step_folder, ignore_errors=True)
+
+
+class RayGRPOTrainer(CustomRayPPOTrainer):
 
     def _switch_chat_template(self, data: DataProto, n_rollouts=16, n_compare=None):
         src_max_length = data.batch["attention_mask"].shape[-1]
@@ -516,27 +543,6 @@ Think step by step before answering and output your answer in \\boxed{}.
                             print("Force saving checkpoint: ESI instance expiration approaching.")
                         with marked_timer("save_checkpoint", timing_raw, color="green"):
                             self._save_checkpoint()
-
-                            if self.config.trainer.get("use_gcs", False):
-                                import fsspec
-                                import shutil
-
-                                fs = fsspec.filesystem("gcs",
-                                    project=self.config.trainer.gcs_project,
-                                    token=self.config.trainer.gcs_token
-                                )
-                                for file_name in ["latest_checkpointed_iteration.txt", f"global_step_{self.global_steps}"]:
-                                    fs.put(
-                                        os.path.join(self.config.trainer.default_local_dir, file_name),
-                                        os.path.join(self.config.trainer.gcs_path, ""),
-                                        recursive=True
-                                    )
-                                local_global_step_folder = os.path.join(
-                                    self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
-                                )
-                                
-                                shutil.rmtree(local_global_step_folder, ignore_errors=True)
-                                # os.rmdir(local_global_step_folder)
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
