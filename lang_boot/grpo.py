@@ -519,6 +519,7 @@ Think step by step before answering and output your answer in \\boxed{}.
 
                             if self.config.trainer.get("use_gcs", False):
                                 import fsspec
+                                import shutil
 
                                 fs = fsspec.filesystem("gcs",
                                     project=self.config.trainer.gcs_project,
@@ -534,7 +535,8 @@ Think step by step before answering and output your answer in \\boxed{}.
                                     self.config.trainer.default_local_dir, f"global_step_{self.global_steps}"
                                 )
                                 
-                                os.rmdir(local_global_step_folder)
+                                shutil.rmtree(local_global_step_folder, ignore_errors=True)
+                                # os.rmdir(local_global_step_folder)
 
                 steps_duration = timing_raw["step"]
                 self.max_steps_duration = max(self.max_steps_duration, steps_duration)
