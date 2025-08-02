@@ -39,9 +39,9 @@ MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 N_ROLLOUTS="${N_ROLLOUTS:-16}"
 
-RUN_NAME=grpo-privilege:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
+RUN_NAME=grpo-baseline:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
 FULL_DATA_PATH=${DATA_PATH}${MODEL_ALIAS}/prep_traces/${TASK}:${LANGUAGE}:generated:-1/
-FULL_SAVE_PATH=${SAVE_MODEL_PATH}/${RUN_NAME}
+FULL_SAVE_PATH=${SAVE_MODEL_PATH}${RUN_NAME}
 LOGPROB_BS=16
 PPO_BS=16
 
@@ -90,6 +90,7 @@ python -m lang_boot.main_grpo \
     trainer.balance_batch=False \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_training_steps=100 \
+    trainer.total_epochs=20 \
+    trainer.total_training_steps=200 \
     trainer.default_local_dir=${FULL_SAVE_PATH} \
     custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py

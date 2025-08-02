@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name=sft
+#SBATCH --job-name=grpo
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=preempt
+#SBATCH --partition=general
 #SBATCH --gres=gpu:8
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
@@ -10,6 +10,7 @@
 #SBATCH --cpus-per-task=128
 #SBATCH --ntasks-per-node=1
 #SBATCH --overcommit
+#SBATCH --exclude=babel-9-3
 
 . ./lang_boot/config/.env
 
@@ -37,7 +38,7 @@ MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 N_ROLLOUTS="${N_ROLLOUTS:-16}"
 
-RUN_NAME=grpo-privilege:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
+RUN_NAME=grpo-privileged:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
 FULL_DATA_PATH=${DATA_PATH}${MODEL_ALIAS}/prep_traces/${TASK}:${LANGUAGE}:generated:-1/
 FULL_SAVE_PATH=${SAVE_MODEL_PATH}${RUN_NAME}
 LOGPROB_BS=16
@@ -49,6 +50,7 @@ python -m lang_boot.main_grpo \
     +trainer.gcs_project=${GCS_PROJECT} \
     +trainer.gcs_token=${GCS_TOKEN} \
     +trainer.gcs_path=${GCS_PATH}${RUN_NAME} \
+    algorithm.norm_adv_by_std_in_grpo=False \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=${FULL_DATA_PATH}/train.parquet \
@@ -67,7 +69,8 @@ python -m lang_boot.main_grpo \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${PPO_BS} \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.loss_agg_mode="seq-mean-token-sum-norm" \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
