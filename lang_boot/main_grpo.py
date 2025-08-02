@@ -22,7 +22,7 @@ import hydra
 import ray
 from omegaconf import OmegaConf
 
-from lang_boot.grpo import RayGRPOTrainer
+from lang_boot.grpo import CustomRayPPOTrainer, RayGRPOTrainer
 from verl.trainer.ppo.reward import load_reward_manager
 
 
@@ -219,8 +219,7 @@ class TaskRunner:
             )
         else:
             print("Training with Default GRPO")
-            from verl.trainer.ppo.ray_trainer import RayPPOTrainer
-            trainer = RayPPOTrainer(
+            trainer = CustomRayPPOTrainer(
                 config=config,
                 tokenizer=tokenizer,
                 processor=processor,
