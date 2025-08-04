@@ -78,19 +78,43 @@ def select_best_candidate(row, col_name="input_candidates", use_logprob=True, us
 system_message = [{"role": "system", "content": "Think about it step by step and give your answer at the end in \\boxed{}."}]
 
 def construct_dataframe(
-    query_path,
-    response_path=None,
-    output_path=None,
-    construct_en=False,
-    eng_response_path=None,
-    max_samples=-1, keep_keys=None, use_accuracy=False, use_lang=False, lang_code="id",
+    response,
+    task,
+    lang,
+    data_path,
+    max_samples=-1, 
+    use_accuracy=False, use_lang=False,
+    # test_data_path="juletxara/mgsm",
+    # test_data_name=None,
     ):
 
-    collected_responses = {}
     df = pd.DataFrame()
 
+    if lang == "en":
+        response = "generated"
+        query_source = "generated:traces"
+    else:
+        query_source = "translated:queries"
+
+    query_path = os.path.join(data_path, f"raw_traces/{task}:{lang}:{query_source}/")
+    response_path = os.path.join(data_path, f"raw_traces/{task}:{lang}:{response}:traces/")
+    eng_response_path = os.path.join(data_path, f"raw_traces/{task}:en:generated:traces/")
+
+    eng_response_df = pd.read_json(os.path.join(eng_response_path, "output.jsonl"), lines=True)
+    eng_response_df['output_candidates'] = eng_response_df.apply(lambda row: from_key(row, "answer"), axis=1)
+    df['eng_output_selected'] = eng_response_df.apply(
+        lambda row: select_best_candidate(
+            row, 
+            col_name="output_candidates",
+            use_logprob=True,
+            use_accuracy=getattr(args, 'use_accuracy', True),
+            use_lang=getattr(args, 'use_lang', False),
+        ), 
+        axis=1
+    )
+
     query_df = pd.read_json(os.path.join(query_path, "output.jsonl"), lines=True)
-    if construct_en:
+    if lang == "en":
         def _get_query(row):
             for context_dict in row["step"][0]['full_input']:
                 if context_dict['role'] == 'user':
@@ -112,7 +136,17 @@ def construct_dataframe(
             axis=1
         )
 
-    if response_path is not None:
+    if lang == "en":
+        df['output_selected'] = df['eng_output_selected']
+
+        df['reward_model'] = eng_response_df.apply(
+            lambda row: {
+                "ground_truth": str(row["ground_truth"])
+            },
+            axis=1
+        )
+
+    else:
         response_df = pd.read_json(os.path.join(response_path, "output.jsonl"), lines=True)
         # response_df['output_candidates'] = response_df.apply(lambda row: from_completions(row), axis=1)
         response_df['output_candidates'] = response_df.apply(lambda row: from_key(row, "answer"), axis=1)
@@ -126,28 +160,20 @@ def construct_dataframe(
             ), 
             axis=1
         )
-    else:
-        df['output_selected'] = "Empty"
 
-    if eng_response_path is not None:
-        eng_response_df = pd.read_json(os.path.join(eng_response_path, "output.jsonl"), lines=True)
-        eng_response_df['output_candidates'] = eng_response_df.apply(lambda row: from_key(row, "answer"), axis=1)
-        df['eng_output_selected'] = eng_response_df.apply(
-            lambda row: select_best_candidate(
-                row, 
-                col_name="output_candidates",
-                use_logprob=True,
-                use_accuracy=getattr(args, 'use_accuracy', True),
-                use_lang=getattr(args, 'use_lang', False),
-            ), 
+        df['reward_model'] = response_df.apply(
+            lambda row: {
+                "ground_truth": str(row["ground_truth"])
+            },
             axis=1
         )
+
 
     # Post Processing
     df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
     df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
     df['messages'] = df.apply(lambda row: row['input'] + row['output'], axis=1)
-    df['data_source'] = output_path.split("/")[-1]
+    df['data_source'] = task
     df['raw_prompt'] = df.apply(
         lambda row: system_message + [
             {"role": "user", "content": row["input_selected"]},
@@ -155,19 +181,13 @@ def construct_dataframe(
         axis=1
     )
 
-    df['reward_model'] = response_df.apply(
-        lambda row: {
-            "ground_truth": row["ground_truth"]
-        },
-        axis=1
-    )
-
     df["extra_info"] = df.apply(
         lambda row: {
-            "ground_truth": row["reward_model"]["ground_truth"],
+            "task": task,
+            "ground_truth": str(row["reward_model"]["ground_truth"]),
             "use_lang": use_lang,
             "use_accuracy": use_accuracy,
-            "lang": lang_code,
+            "lang": lang,
         }, 
         axis=1
     )
@@ -190,32 +210,98 @@ def construct_dataframe(
 
     print(train_df.head())
 
+    # MGSM Test Set
+    if lang == "id":
+        path_a = os.path.dirname(__file__)
+        path_b = "../tasks/task_evaluation/mgsm/mgsm_id.jsonl"
+        eval_df = load_dataset(
+            "json",
+            data_files={"test": os.path.join(path_a, path_b)},
+            split="test"
+        ).to_pandas()
+    else:
+        eval_df = load_dataset("juletxara/mgsm", lang, split="test").to_pandas()
+    eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": row["question"]}], axis=1)
+    eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
+    eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
+    eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['data_source'] = "juletxara/mgsm"
+    eval_df["extra_info"] = eval_df.apply(
+        lambda row: {
+            "task": "mgsm",
+            "ground_truth": str(row["answer_number"]),
+            "lang": lang,
+        }, 
+        axis=1
+    )
+    eval_df['reward_model'] = eval_df.apply(
+        lambda row: {
+            "ground_truth": str(row["answer_number"]),
+        },
+        axis=1
+    )
+
+    eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
+    print(eval_df["reward_model"])
+    test_df = pd.concat([test_df, eval_df], ignore_index=True)
+
+    # Global MMLU Test Set
+    eval_df = load_dataset("CohereLabs/Global-MMLU-Lite", lang, split="test").to_pandas()
+
+    def construct_prompt(row):
+        return f"{row['question']}\n\nA) {row['option_a']}\nB) {row['option_b']}\nC) {row['option_c']}\nD) {row['option_d']}\n\nAnswer: "
+
+    eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": construct_prompt(row)}], axis=1)
+    eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
+    eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
+    eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+    eval_df['data_source'] = "CohereLabs/Global-MMLU-Lite"
+    eval_df["extra_info"] = eval_df.apply(
+        lambda row: {
+            "task": "mmlu-global",
+            "ground_truth": f"{row['answer']}:::{row['option_{}'.format(row['answer'].lower())]}",
+            "lang": lang,
+        }, 
+        axis=1
+    )
+    eval_df['reward_model'] = eval_df.apply(
+        lambda row: {
+            "ground_truth": f"{row['answer']}:::{row['option_{}'.format(row['answer'].lower())]}",
+        },
+        axis=1
+    )
+    eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
+    print(eval_df["reward_model"])
+    test_df = pd.concat([test_df, eval_df], ignore_index=True)
+
+    print(test_df)
+
+    output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:{response}:{max_samples}/")
     os.makedirs(output_path, exist_ok=True)
     train_df.to_parquet(os.path.join(output_path, "train.parquet"))
     valid_df.to_parquet(os.path.join(output_path, "valid.parquet"))
     test_df.to_parquet(os.path.join(output_path, "test.parquet"))
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--query_path', type=str)
-    parser.add_argument('--response_path', type=str)
-    parser.add_argument('--eng_response_path', type=str, default=None, help='Path to the English responses')
-    parser.add_argument('--output_path', type=str)
+    parser.add_argument('--response', type=str)
+    parser.add_argument('--task', type=str)
+    parser.add_argument('--lang', type=str, default=None, help='Language')
+    parser.add_argument('--data_path', type=str)
     parser.add_argument('--max_samples', type=int, default=1000)
-    parser.add_argument('--construct_en', action='store_true', default=False)
     parser.add_argument('--use_accuracy', action='store_true', default=False)
     parser.add_argument('--use_lang', action='store_true', default=False)
-    parser.add_argument('--lang_code', type=str, default='id', help='Language code for the responses (default: id for Indonesian)')
     args = parser.parse_args()
     construct_dataframe(
-        args.query_path,
-        args.response_path,
-        args.output_path,
-        construct_en=args.construct_en,
-        eng_response_path=args.eng_response_path,
+        args.response,
+        args.task,
+        args.lang,
+        data_path=args.data_path,
         max_samples=args.max_samples,
         use_accuracy=args.use_accuracy,
         use_lang=args.use_lang,
-        lang_code=args.lang_code,
     )
