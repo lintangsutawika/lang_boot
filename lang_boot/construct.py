@@ -84,19 +84,21 @@ def construct_dataframe(
     data_path,
     max_samples=-1, 
     use_accuracy=False, use_lang=False,
+    use_en=False,
     # test_data_path="juletxara/mgsm",
     # test_data_name=None,
     ):
 
     df = pd.DataFrame()
 
-    if lang == "en":
+    if (lang == "en") or use_en:
         response = "generated"
         query_source = "generated:traces"
     else:
         query_source = "translated:queries"
 
-    query_path = os.path.join(data_path, f"raw_traces/{task}:{lang}:{query_source}/")
+    query_lang = "en" if use_en else lang
+    query_path = os.path.join(data_path, f"raw_traces/{task}:{query_lang}:{query_source}/")
     response_path = os.path.join(data_path, f"raw_traces/{task}:{lang}:{response}:traces/")
     eng_response_path = os.path.join(data_path, f"raw_traces/{task}:en:generated:traces/")
 
@@ -114,7 +116,7 @@ def construct_dataframe(
     )
 
     query_df = pd.read_json(os.path.join(query_path, "output.jsonl"), lines=True)
-    if lang == "en":
+    if (lang == "en") or use_en:
         def _get_query(row):
             for context_dict in row["step"][0]['full_input']:
                 if context_dict['role'] == 'user':
@@ -227,7 +229,7 @@ def construct_dataframe(
     eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
     eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
     eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['data_source'] = "juletxara/mgsm"
+    eval_df['data_source'] = "mgsm"
     eval_df["extra_info"] = eval_df.apply(
         lambda row: {
             "task": "mgsm",
@@ -244,7 +246,6 @@ def construct_dataframe(
     )
 
     eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
-    print(eval_df["reward_model"])
     test_df = pd.concat([test_df, eval_df], ignore_index=True)
 
     # Global MMLU Test Set
@@ -259,10 +260,10 @@ def construct_dataframe(
     eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
     eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
     eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['data_source'] = "CohereLabs/Global-MMLU-Lite"
+    eval_df['data_source'] = "global_mmlu"
     eval_df["extra_info"] = eval_df.apply(
         lambda row: {
-            "task": "mmlu-global",
+            "task": "global_mmlu",
             "ground_truth": f"{row['answer']}:::{row['option_{}'.format(row['answer'].lower())]}",
             "lang": lang,
         }, 
@@ -275,12 +276,40 @@ def construct_dataframe(
         axis=1
     )
     eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
-    print(eval_df["reward_model"])
     test_df = pd.concat([test_df, eval_df], ignore_index=True)
 
-    print(test_df)
+    if task == "math_train":
 
-    output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:{response}:{max_samples}/")
+        # Math500 Test Set
+        eval_df = load_dataset("HuggingFaceH4/MATH-500", split="test").to_pandas()
+        eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": row["problem"]}], axis=1)
+        eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+        eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
+        eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
+        eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+        eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+        eval_df['data_source'] = "math500"
+        eval_df["extra_info"] = eval_df.apply(
+            lambda row: {
+                "task": "math500",
+                "ground_truth": str(row["answer"]),
+                "lang": lang,
+            }, 
+            axis=1
+        )
+        eval_df['reward_model'] = eval_df.apply(
+            lambda row: {
+                "ground_truth": str(row["answer"]),
+            },
+            axis=1
+        )
+        eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
+        test_df = pd.concat([test_df, eval_df], ignore_index=True)
+
+    if use_en:
+        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:en_generated:{max_samples}/")
+    else:
+        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:{response}:{max_samples}/")
     os.makedirs(output_path, exist_ok=True)
     train_df.to_parquet(os.path.join(output_path, "train.parquet"))
     valid_df.to_parquet(os.path.join(output_path, "valid.parquet"))
@@ -293,6 +322,7 @@ if __name__ == "__main__":
     parser.add_argument('--lang', type=str, default=None, help='Language')
     parser.add_argument('--data_path', type=str)
     parser.add_argument('--max_samples', type=int, default=1000)
+    parser.add_argument('--use_en', action='store_true', default=False)
     parser.add_argument('--use_accuracy', action='store_true', default=False)
     parser.add_argument('--use_lang', action='store_true', default=False)
     args = parser.parse_args()
@@ -300,6 +330,7 @@ if __name__ == "__main__":
         args.response,
         args.task,
         args.lang,
+        use_en=args.use_en,
         data_path=args.data_path,
         max_samples=args.max_samples,
         use_accuracy=args.use_accuracy,
