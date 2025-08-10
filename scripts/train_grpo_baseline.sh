@@ -10,19 +10,20 @@
 #SBATCH --cpus-per-task=128
 #SBATCH --ntasks-per-node=1
 #SBATCH --overcommit
-#SBATCH --exclude=babel-9-3
+#SBATCH --exclude=babel-9-3,babel-4-25,babel-14-29,babel-12-9,babel-13-1
 
 . ./lang_boot/config/.env
 
 # babel-6-5
-# sbatch lang_boot/scripts/train_grpo_baseline.sh \
+# sbatch lang_boot/scripts/train_grpo_baseline_gcs_new.sh \
 #   -m Qwen/Qwen2.5-7B-Instruct \
-#   -l id \
+#   -l ja \
 #   -t gsm8k_train \
 #   -d data/ \
-#   -s /project/flame/lsutawik/03-lang-rl/checkpoint/
+#   -s /scratch/lsutawik/checkpoints/ \
+#   -f compute_score_no_lang_no_penalty
 
-while getopts ":m:l:n:t:d:s:" opt; do
+while getopts ":m:l:n:t:d:s:f:r:v:g:e:" opt; do
   case ${opt} in
     m ) MODEL=$OPTARG;;
     l ) LANGUAGE=$OPTARG;;
@@ -30,6 +31,11 @@ while getopts ":m:l:n:t:d:s:" opt; do
     t ) TASK=$OPTARG;;
     d ) DATA_PATH=$OPTARG;;
     s ) SAVE_MODEL_PATH=$OPTARG;;
+    f ) FUNCTION_NAME=$OPTARG;;
+    r ) RUN_NAME=$OPTARG;;
+    v ) VALIDATION_DATA_PATH=$OPTARG;;
+    g ) USE_GCS=$OPTARG;;
+    e ) SOURCE_TYPE=$OPTARG;;
     # \? ) echo "Usage: cmd [-u] [-p]";;
   esac
 done
@@ -37,25 +43,37 @@ done
 MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 # Get number of GPUs available
 NUM_GPUS=$(nvidia-smi -L | wc -l)
-N_ROLLOUTS="${N_ROLLOUTS:-16}"
-
-RUN_NAME=grpo-baseline:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
-FULL_DATA_PATH=${DATA_PATH}${MODEL_ALIAS}/prep_traces/${TASK}:${LANGUAGE}:generated:-1/
+USE_GCS="${USE_GCS:-False}"
+N_ROLLOUTS="${N_ROLLOUTS:-8}"
+FUNCTION_NAME="${FUNCTION_NAME:-compute_score}"
+MAX_LENGTH=512
+RUN_NAME="${RUN_NAME:-grpo-baseline}"
+SOURCE_TYPE="${SOURCE_TYPE:-generated}"
+RUN_NAME=${RUN_NAME}:${MODEL_ALIAS}:${TASK}:${LANGUAGE}
+FULL_DATA_PATH=${DATA_PATH}${MODEL_ALIAS}/prep_traces/${TASK}:${LANGUAGE}:${SOURCE_TYPE}:-1/
 FULL_SAVE_PATH=${SAVE_MODEL_PATH}${RUN_NAME}
 LOGPROB_BS=16
 PPO_BS=16
 
 python -m lang_boot.main_grpo \
+    +trainer.wandb.language=${LANGUAGE} \
+    +trainer.wandb.task=${TASK} \
     +trainer.privileged=False \
+    +trainer.use_gcs=${USE_GCS} \
+    +trainer.gcs_project=${GCS_PROJECT} \
+    +trainer.gcs_token=${GCS_TOKEN} \
+    +trainer.gcs_path=${GCS_PATH}${RUN_NAME} \
+    trainer.validation_data_dir=${VALIDATION_DATA_PATH}${RUN_NAME} \
+    algorithm.norm_adv_by_std_in_grpo=False \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
     data.train_files=${FULL_DATA_PATH}/train.parquet \
-    data.val_files=${FULL_DATA_PATH}/valid.parquet \
+    data.val_files=${FULL_DATA_PATH}/test.parquet \
     data.prompt_key=input \
-    data.reward_fn_key=input_selected \
     data.train_batch_size=64 \
     data.max_prompt_length=512 \
-    data.max_response_length=2048 \
+    data.max_response_length=${MAX_LENGTH} \
+    data.shuffle=True \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=${MODEL} \
@@ -65,7 +83,8 @@ python -m lang_boot.main_grpo \
     actor_rollout_ref.actor.optim.lr=5e-7 \
     actor_rollout_ref.actor.ppo_mini_batch_size=64 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${PPO_BS} \
-    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.loss_agg_mode="seq-mean-token-sum-norm" \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
@@ -88,9 +107,10 @@ python -m lang_boot.main_grpo \
     trainer.nnodes=1 \
     trainer.val_before_train=True \
     trainer.balance_batch=False \
-    trainer.save_freq=10 \
-    trainer.test_freq=10 \
+    trainer.save_freq=25 \
+    trainer.test_freq=5 \
     trainer.total_epochs=20 \
-    trainer.total_training_steps=200 \
+    trainer.total_training_steps=250 \
     trainer.default_local_dir=${FULL_SAVE_PATH} \
-    custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py
+    custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py \
+    custom_reward_function.name=${FUNCTION_NAME}
