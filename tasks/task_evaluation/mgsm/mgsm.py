@@ -20,6 +20,7 @@ from lang_boot.utils import math_eval_with_postprocessing
 path = os.path.dirname(__file__)
 
 class MGSMTask(YevalTask):
+    system_message="Think about it step by step and give your answer at the end in \\boxed{}."
     data_path="juletxara/mgsm"
     input_text=lambda x: x["question"]
     output_text=lambda x: x["answer_number"]
@@ -77,9 +78,3 @@ class MGSM_ID_Task(MGSMTask):
     data_path="json"
     data_name=None
     data_kwargs={"data_files": {"test": os.path.join(path, "mgsm_id.jsonl")}}
-
-@register_task("mgsm_translate")
-class MGSMTranslateTask(YevalTask):
-    system_message="You are a helpful assistant that can translate from English to Indonesian. Start your translation after ####"
-    user_message=lambda x: "English Query:\n\n"+f"```\n{x}\n```"+"Indonesian Translation:\n\n"
-    sampling_args={"n": 4}
