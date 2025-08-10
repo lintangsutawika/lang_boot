@@ -14,6 +14,12 @@ from functools import partial
 from datasets import load_dataset
 # from nltk.tokenize import word_tokenize
 
+from yeval.task import TASK_LIST
+from yeval.utils import import_modules
+
+path = os.path.dirname(__file__)
+import_modules(os.path.join(path, "../tasks/"))
+
 from langdetect import detect_langs
 
 # TODO Choose reward models
@@ -97,6 +103,17 @@ def construct_dataframe(
     else:
         query_source = "translated:queries"
 
+    lang_prompt_functions = {
+        f"{lang}_reason": TASK_LIST[f"{lang}_reason"].user_message,
+        f"{lang}_measure": lambda x: x,
+    }
+
+    if lang != "en":
+        prompt_functions = {
+            f"en_reason": TASK_LIST[f"en_reason"].user_message,
+            **lang_prompt_functions
+        }
+
     query_lang = "en" if use_en else lang
     query_path = os.path.join(data_path, f"raw_traces/{task}:{query_lang}:{query_source}/")
     response_path = os.path.join(data_path, f"raw_traces/{task}:{lang}:{response}:traces/")
@@ -170,12 +187,17 @@ def construct_dataframe(
             axis=1
         )
 
-
     # Post Processing
+    prompt_fn = prompt_functions[f"{lang}_reason"]
+    df = df[(df["input_selected"] != "None") & (df["output_selected"] != "None")]
+    df["input_selected"] = df.apply(
+        lambda row: prompt_fn(row["input_selected"]),
+        axis=1
+    )
     df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
     df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
     df['messages'] = df.apply(lambda row: row['input'] + row['output'], axis=1)
-    df['data_source'] = task
+    df['data_source'] = "train_dataset"
     df['raw_prompt'] = df.apply(
         lambda row: system_message + [
             {"role": "user", "content": row["input_selected"]},
@@ -185,7 +207,7 @@ def construct_dataframe(
 
     df["extra_info"] = df.apply(
         lambda row: {
-            "task": task,
+            "task": "train_dataset",
             "ground_truth": str(row["reward_model"]["ground_truth"]),
             "use_lang": use_lang,
             "use_accuracy": use_accuracy,
@@ -197,7 +219,6 @@ def construct_dataframe(
     # df = df[['input', 'output']]
     # df = df[['messages']]
     # Remove unsuccessful responses
-    df = df[(df["input_selected"] != "None") & (df["output_selected"] != "None")]
     df.sample(frac=1).reset_index(drop=True)
     task_size = len(df)
     train_size = int(task_size * 0.8)
@@ -212,99 +233,48 @@ def construct_dataframe(
 
     print(train_df.head())
 
-    # MGSM Test Set
-    if lang == "id":
-        path_a = os.path.dirname(__file__)
-        path_b = "../tasks/task_evaluation/mgsm/mgsm_id.jsonl"
-        eval_df = load_dataset(
-            "json",
-            data_files={"test": os.path.join(path_a, path_b)},
-            split="test"
-        ).to_pandas()
-    else:
-        eval_df = load_dataset("juletxara/mgsm", lang, split="test").to_pandas()
-    eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": row["question"]}], axis=1)
-    eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
-    eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
-    eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['data_source'] = "mgsm"
-    eval_df["extra_info"] = eval_df.apply(
-        lambda row: {
-            "task": "mgsm",
-            "ground_truth": str(row["answer_number"]),
-            "lang": lang,
-        }, 
-        axis=1
-    )
-    eval_df['reward_model'] = eval_df.apply(
-        lambda row: {
-            "ground_truth": str(row["answer_number"]),
-        },
-        axis=1
-    )
+    for task_name in ["math500", "mgsm", "global_mmlu", "belebele", "mt_aime2024", "mt_math100"]:
+        if task_name == "math500":
+            full_task_name = task_name
+            task_lang = "en"
+        else:
+            full_task_name = f'{task_name}_{lang}'
+            task_lang = lang
 
-    eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
-    test_df = pd.concat([test_df, eval_df], ignore_index=True)
+        eval_dataset = TASK_LIST[full_task_name]()
+        x, y = zip(*[eval_dataset.dataset.__getitem__(idx) for idx in range(eval_dataset.dataset.__len__())])
 
-    # Global MMLU Test Set
-    eval_df = load_dataset("CohereLabs/Global-MMLU-Lite", lang, split="test").to_pandas()
+        for prompt_name, prompt_fn in prompt_functions.items():
+            print(f"{task_name}/{prompt_name}")
+            if not prompt_name.startswith("en_"):
+                _, *prompt_name = prompt_name.split("_")
+                prompt_name = "_".join(["x"]+prompt_name)
 
-    def construct_prompt(row):
-        return f"{row['question']}\n\nA) {row['option_a']}\nB) {row['option_b']}\nC) {row['option_c']}\nD) {row['option_d']}\n\nAnswer: "
+            eval_df = pd.DataFrame()
+            eval_df['input_selected'] = [prompt_fn(_x) for _x in x]
+            eval_df['output_selected'] = [str(_y) for _y in y]
+            eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
+            eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+            eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+            eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
+            eval_df['data_source'] = f"{task_name}/{prompt_name}"
+            eval_df["extra_info"] = eval_df.apply(
+                lambda row: {
+                    "task": f"{task_name}/{prompt_name}",
+                    "ground_truth": str(row["output_selected"]),
+                    "lang": task_lang,
+                }, 
+                axis=1
+            )
+            eval_df['reward_model'] = eval_df.apply(
+                lambda row: {
+                    "ground_truth": str(row["output_selected"]),
+                },
+                axis=1
+            )
 
-    eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": construct_prompt(row)}], axis=1)
-    eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
-    eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
-    eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-    eval_df['data_source'] = "global_mmlu"
-    eval_df["extra_info"] = eval_df.apply(
-        lambda row: {
-            "task": "global_mmlu",
-            "ground_truth": f"{row['answer']}:::{row['option_{}'.format(row['answer'].lower())]}",
-            "lang": lang,
-        }, 
-        axis=1
-    )
-    eval_df['reward_model'] = eval_df.apply(
-        lambda row: {
-            "ground_truth": f"{row['answer']}:::{row['option_{}'.format(row['answer'].lower())]}",
-        },
-        axis=1
-    )
-    eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
-    test_df = pd.concat([test_df, eval_df], ignore_index=True)
-
-    if task == "math_train":
-
-        # Math500 Test Set
-        eval_df = load_dataset("HuggingFaceH4/MATH-500", split="test").to_pandas()
-        eval_df['input'] = eval_df.apply(lambda row: system_message + [{"role": "user", "content": row["problem"]}], axis=1)
-        eval_df['output'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-        eval_df['input_selected'] = eval_df.apply(lambda row: "", axis=1)
-        eval_df['output_selected'] = eval_df.apply(lambda row: "", axis=1)
-        eval_df['messages'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-        eval_df['raw_prompt'] = eval_df.apply(lambda row: [{"role": "assistant", "content": ""}], axis=1)
-        eval_df['data_source'] = "math500"
-        eval_df["extra_info"] = eval_df.apply(
-            lambda row: {
-                "task": "math500",
-                "ground_truth": str(row["answer"]),
-                "lang": lang,
-            }, 
-            axis=1
-        )
-        eval_df['reward_model'] = eval_df.apply(
-            lambda row: {
-                "ground_truth": str(row["answer"]),
-            },
-            axis=1
-        )
-        eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
-        test_df = pd.concat([test_df, eval_df], ignore_index=True)
+            eval_df = eval_df[['input', 'output', 'input_selected', 'output_selected', 'messages', 'data_source', 'raw_prompt', 'reward_model', 'extra_info']]
+            test_df = pd.concat([test_df, eval_df], ignore_index=True)
 
     if use_en:
         output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:en_generated:{max_samples}/")
