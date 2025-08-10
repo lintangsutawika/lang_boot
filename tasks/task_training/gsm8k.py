@@ -37,7 +37,7 @@ class JSONGSM8KTrainTask(LangBootGSM8KTrainTask):
 @register_task("json_highest_lang_gsm8k_train")
 class JSONGSM8KTrainTask(LangBootGSM8KTrainTask):
     data_path="json"
-    input_text=lambda x: x["input"]
+    input_text=lambda x: x["input"].split("Translation:")[-1].strip()
     output_text=lambda x: x["output"]
     preprocessing=highest_language_content
 
