@@ -116,8 +116,10 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
         system_message = """\
 You are a helpful assistant. You will be given two responses to compare. \
 Based on the query and the English response, \
-which of the two responses are the better translation or is closest to the English response? \
-They must not be in English but in the language of the query. \
+Decide which is the best response based on the following criteria: \
+1. Does the response provide a correct answer to the query? \
+2. Does the response maintain the language of the query? \
+3. Does the response serve as a good translation of the English response? \
 Answer with "A" if the first response is better \
 and "B" if the second response is better. \
 Think step by step before answering and output your answer in \\boxed{}.
@@ -167,7 +169,7 @@ Think step by step before answering and output your answer in \\boxed{}.
                 {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
             ]
 
-            prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=False, tokenize=False)
+            prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
             # if idx == 0:
             #     # for debugging purpose
             #     print(f"Switch template. chat:\n{prompt_with_chat_template}")
