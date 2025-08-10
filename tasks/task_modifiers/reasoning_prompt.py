@@ -16,53 +16,22 @@ class BaseLangTask(YevalTask):
     sample_agg_fn={"lang": lambda x: x}
     logging=log_logprob
 
-@register_task("bn_measure")
-class BNTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="bn")}
-
-@register_task("de_measure")
-class DETranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="de")}
-
-@register_task("en_measure")
+@register_task("en_reason")
 class ENTranslateTask(BaseLangTask):
+    # user_message=lambda x: x+"\n\nlet's solve this in English and write the final answer in \\boxed{}."
+    user_message=lambda x: f"{x}"+"\nReason step by step and put your final answer within \\boxed{}."
     evaluation={"lang": partial(lang_content, lang="en")}
 
-@register_task("es_measure")
-class ESTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="es")}
-
-@register_task("fr_measure")
-class FRTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="fr")}
-
-@register_task("ja_measure")
-class JATranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="ja")}
-
-@register_task("ru_measure")
-class RUTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="ru")}
-
-@register_task("sw_measure")
-class SWTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="sw")}
-
-@register_task("te_measure")
-class TWTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="te")}
-
-@register_task("th_measure")
-class THTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="th")}
-
-@register_task("zh_measure")
-class JPNTranslateTask(BaseLangTask):
-    evaluation={"lang": partial(lang_content, lang="zh")}
-
-@register_task("id_measure")
-class IDTranslateTask(BaseLangTask):
+@register_task("id_reason")
+class ENTranslateTask(BaseLangTask):
+    # user_message=lambda x: x+"\n\nmari kita pecahkan dalam Bahasa Indonesia dan tuliskan jawaban akhir di dalam \\boxed{}."
+    user_message=lambda x: f"{x}"+"\nBerpikir langkah demi langkah dan tuliskan jawaban akhir di dalam \\boxed{}."
     evaluation={"lang": partial(lang_content, lang="id")}
+
+@register_task("ja_reason")
+class ENTranslateTask(BaseLangTask):
+    user_message=lambda x: f"{x}"+"\n段階的に推論し、最終的な答えを\\boxed{}内に記入してください。"
+    evaluation={"lang": partial(lang_content, lang="ja")}
 
 class BaseBoxTask(YevalTask):
     postprocessor=get_boxed_answer
