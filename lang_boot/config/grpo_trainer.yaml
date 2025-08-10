@@ -11,4 +11,5 @@ actor_rollout_ref:
   actor:
     # checkpoint configs
     checkpoint:
-      save_contents: ['model', 'hf_model', 'optimizer', 'extra']
+      # save_contents: ['model', 'hf_model', 'optimizer', 'extra']
+      save_contents: ['hf_model']
