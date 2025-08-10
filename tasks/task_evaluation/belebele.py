@@ -3,52 +3,87 @@ import re
 from functools import partial
 
 from yeval.task import register_task, YevalTask
-
-from yeval.log.usage import log_token_usage
+from yeval.log.usage import log_logprob
+from yeval.response.math_responses import get_boxed_answer
 
 path = os.path.dirname(__file__)
 
 def input_text(x):
-    _x = x['Indonesian']
-    _input = [_x['question'], "\n".join(_x['choices'])]
-    if 'context' in _x:
-        _input.insert(0, _x['context'])   
-    return "\n".join(_input)
+    return f"{x['flores_passage']}\n{x['question']}\n\nA) {x['mc_answer1']}\nB) {x['mc_answer2']}\nC) {x['mc_answer3']}\nD) {x['mc_answer4']}\n\nAnswer: "
 
 def output_text(x):
-    _x = x['Indonesian']
-    answer = _x['answer']
-    letter, *text = answer.split(" ")
-    text = " ".join(text)
-    return [letter, text, answer]
+    label = int(x["correct_answer_num"])
+    letter = ["A", "B", "C", "D"][label - 1]
+    answer = x[f"mc_answer{label}"]
+    return f"{letter}::{answer}"
 
-def eval_fn(prediction, ground_truth):
-    score = 0
-    try:
-        letter, text, full_span = ground_truth
-        matches = re.findall(r'\((.*?)\)', letter)
-        if len(matches) > 0:
-            letter = matches[0]
-        if full_span == ground_truth:
-            return 1
-        prediction = prediction.split(".")[0]
-        matches = re.findall(r'\((.*?)\)', prediction)
-        if len(matches) > 0:
-            prediction = matches[0]
-        if prediction in ["A", "B", "C", "D", "E"]:
-            if prediction == letter:
-                score = 1
-        elif prediction == text:
-            score = 1
-    except Exception as e:
-        pass
-    return score
+def eval_with_postprocessing(x, y):
+    gold_letter, gold_answer = y.split("::")
 
-@register_task("belebele_ind")
-class MGSMTask(YevalTask):
+    ans_score = 0.0
+    ans = get_boxed_answer(x).lower()
+    if ans.lower() == gold_letter.lower():
+        ans_score = 1.0
+    elif ans.lower() == gold_answer.lower():
+        ans_score = 1.0
+    elif ans.lower()[:1] == gold_letter.lower():
+        ans_score = 1.0
+    return ans_score
+
+class BelebeleTask(YevalTask):
+    system_message="Think about it step by step and give your answer at the end in \\boxed{}."
     data_path="facebook/belebele"
-    data_name="ind_Latn"
     input_text=input_text
     output_text=output_text
     test_split="test"
-    evaluation={"accuracy": eval_fn}
+    evaluation={"accuracy": eval_with_postprocessing}
+    sample_agg_fn={"accuracy": lambda x: x}
+    logging=log_logprob
+
+@register_task("belebele_bn")
+class Belebele_BN_Task(BelebeleTask):
+    data_name="ben_Beng"
+
+@register_task("belebele_de")
+class Belebele_DE_Task(BelebeleTask):
+    data_name="deu_Latn"
+
+@register_task("belebele_en")
+class Belebele_EN_Task(BelebeleTask):
+    data_name="eng_Latn"
+
+@register_task("belebele_es")
+class Belebele_ES_Task(BelebeleTask):
+    data_name="spa_Latn"
+
+@register_task("belebele_fr")
+class Belebele_FR_Task(BelebeleTask):
+    data_name="fra_Latn"
+
+@register_task("belebele_ja")
+class Belebele_JA_Task(BelebeleTask):
+    data_name="jpn_Jpan"
+
+@register_task("belebele_ru")
+class Belebele_RU_Task(BelebeleTask):
+    data_name="rus_Cyrl"
+
+@register_task("belebele_sw")
+class Belebele_SW_Task(BelebeleTask):
+    data_name="swh_Latn"
+
+@register_task("belebele_te")
+class Belebele_TE_Task(BelebeleTask):
+    data_name="tel_Telu"
+
+@register_task("belebele_th")
+class Belebele_TH_Task(BelebeleTask):
+    data_name="tha_Thai"
+
+@register_task("belebele_zh")
+class Belebele_ZH_Task(BelebeleTask):
+    data_name="zho_Hans"
+
+@register_task("belebele_id")
+class Belebele_ID_Task(BelebeleTask):
+    data_name="ind_Latn"
