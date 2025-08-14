@@ -70,6 +70,25 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 
+pairwise_system_message = """\
+You are a helpful assistant. You will be given two responses to compare. \
+Based on the query and the English response, \
+Decide which is the best response based on the following criteria: \
+1. Does the response provide a correct answer to the query? \
+2. Does the response maintain the language of the query? \
+3. Does the response serve as a good translation of the English response? \
+4. Does the response follow the same logical steps as the English response? \
+Answer with "A" if the first response is better \
+and "B" if the second response is better.
+"""
+
+language_system_message = """\
+You are a helpful assistant. You will be given a response and classify what language it is in. \
+If the response is in English, output "en". \
+If the response is in Chinese, output "zh".
+"""
+
+
 def extract_boxed_content(text):
     match = list(re.finditer(r'\\boxed\{([^}]+)\}', text))
     return match[-1].group(1) if match else None
@@ -103,57 +122,55 @@ class CustomRayPPOTrainer(RayPPOTrainer):
 
 class RayGRPOTrainer(CustomRayPPOTrainer):
 
-    def _switch_chat_template(self, data: DataProto, n_rollouts=16, n_compare=None):
+    def _switch_chat_template(self, data: DataProto, n_rollouts=None, n_compare=None, system_message=None):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
-#         system_message = """\
-# You are a helpful assistant. You will be given two responses to compare. \
-# output "A" if the first response is better \
-# and "B" if the second response is better. \
-# Think step by step before answering and output your answer in \\boxed{}.
-# """
+        system_message += "\nThink step by step before answering and output your answer in \\boxed{}."
 
-        system_message = """\
-You are a helpful assistant. You will be given two responses to compare. \
-Based on the query and the English response, \
-Decide which is the best response based on the following criteria: \
-1. Does the response provide a correct answer to the query? \
-2. Does the response maintain the language of the query? \
-3. Does the response serve as a good translation of the English response? \
-Answer with "A" if the first response is better \
-and "B" if the second response is better. \
-Think step by step before answering and output your answer in \\boxed{}.
-"""
+        if (n_rollouts is None) and (n_compare is None):
+            range_bs = list(range(data.batch.batch_size[0]))
+            pairwise_chunks = [range_bs[i:i+n_rollouts] for i in range(0, len(range_bs), n_rollouts)]
 
-        rm_input_ids = []
-        rm_attention_mask = []
+            pairwise_idx = []
+            for chunk in pairwise_chunks:
+                for i in chunk:
+                    _chunk = [j for j in chunk if j != i]
+                    n_compare = min(n_compare, len(_chunk))
+                    pairwise_idx.extend([(i,j) for j in random.sample(_chunk, n_compare)])
 
-        # for i in range(data.batch.batch_size[0]):
-        range_bs = list(range(data.batch.batch_size[0]))
-        pairwise_chunks = [range_bs[i:i+n_rollouts] for i in range(0, len(range_bs), n_rollouts)]
-        # pairwise_idx = [(i,j) for chunk in pairwise_chunks for i, j in itertools.product(chunk, chunk) if i != j]
+            chat_list = []
+            for idx, (i, j) in enumerate(pairwise_idx):
+                # extract raw prompt
+                base_query = data.non_tensor_batch["input_selected"][i]
+                eng_response = data.non_tensor_batch["eng_output_selected"][i]
 
-        if n_compare is None:
-            n_compare = n_rollouts
+                response_dict = {}
+                for idx_resp, x in zip(["A", "B"],[i, j]):
+                    # extract response
+                    response_ids = data.batch["responses"][x]
+                    response_length = response_ids.shape[-1]
+                    valid_response_length = data.batch["attention_mask"][x][-response_length:].sum()
+                    valid_response_ids = response_ids[:valid_response_length]
 
-        pairwise_idx = []
-        for chunk in pairwise_chunks:
-            for i in chunk:
-                _chunk = [j for j in chunk if j != i]
-                n_compare = min(n_compare, len(_chunk))
-                pairwise_idx.extend([(i,j) for j in random.sample(_chunk, n_compare)])
+                    # decode
+                    response = self.tokenizer.decode(valid_response_ids)
+                    # remove bos and eos
+                    response = response.replace(self.tokenizer.eos_token, "")
 
-        for idx, (i, j) in enumerate(pairwise_idx):
-            # extract raw prompt
-            base_query = data.non_tensor_batch["input_selected"][i]
-            eng_response = data.non_tensor_batch["eng_output_selected"][i]
+                    response_dict[idx_resp] = response
 
-            response_dict = {}
-            for idx_resp, x in zip(["A", "B"],[i, j]):
-                # extract response
-                response_ids = data.batch["responses"][x]
+                chat_list.append([
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
+                ])
+        else:
+
+            chat_list = []
+            for idx in range_bs:
+                # extract raw prompt
+                response_ids = data.batch["responses"][idx]
                 response_length = response_ids.shape[-1]
-                valid_response_length = data.batch["attention_mask"][x][-response_length:].sum()
+                valid_response_length = data.batch["attention_mask"][idx][-response_length:].sum()
                 valid_response_ids = response_ids[:valid_response_length]
 
                 # decode
@@ -161,18 +178,17 @@ Think step by step before answering and output your answer in \\boxed{}.
                 # remove bos and eos
                 response = response.replace(self.tokenizer.eos_token, "")
 
-                response_dict[idx_resp] = response
+                chat_list.append([
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": f"Response:\n{response}\n"},
+                ])
 
-            chat = [
-                {"role": "system", "content": system_message},
-                # {"role": "user", "content": f"Query:\n{base_query}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
-                {"role": "user", "content": f"Query:\n{base_query}\n\nEnglish Response:\n{eng_response}\n\nResponse A:\n{response_dict['A']}\n\nResponse B:\n{response_dict['B']}"},
-            ]
+        rm_input_ids = []
+        rm_attention_mask = []
+        for chat in chat_list:
 
             prompt_with_chat_template = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, tokenize=False)
-            # if idx == 0:
-            #     # for debugging purpose
-            #     print(f"Switch template. chat:\n{prompt_with_chat_template}")
+
 
             # the maximum length is actually determined by the reward model itself
             max_length = self.config.get("max_length", src_max_length)
@@ -343,76 +359,86 @@ Think step by step before answering and output your answer in \\boxed{}.
                             token_level_scores = token_level_scores[:, -response_length:]
 
                             return token_level_scores
-                        # compute reward model score
-                        # if self.use_rm:
-                        # reward_tensor = self.rm_wg.compute_rm_score(batch)
-                        # judge_batch = self.rm_wg.compute_rm_score(batch)
-                        judge_batch = self._switch_chat_template(
-                            batch,
-                            n_rollouts=self.config.actor_rollout_ref.rollout.n,
-                            n_compare=self.config.actor_rollout_ref.rollout.compare,
-                            )
-                        n_rollouts = self.config.actor_rollout_ref.rollout.n
-                        n_compare = self.config.actor_rollout_ref.rollout.compare
+                        
+                        if self.config.use_pairwise_judge:
+                            judge_batch = self._switch_chat_template(
+                                batch,
+                                n_rollouts=self.config.actor_rollout_ref.rollout.n,
+                                n_compare=self.config.actor_rollout_ref.rollout.compare,
+                                system_message=pairwise_system_message,
+                                )
+                            n_rollouts = self.config.actor_rollout_ref.rollout.n
+                            n_compare = self.config.actor_rollout_ref.rollout.compare
 
-                        if self.global_steps == 1:
-                            print("batch size", batch.batch.batch_size[0])
-                            print("judge_batch size", judge_batch.batch.batch_size[0])
-                            print("n_rollouts size", n_rollouts)
-                            print("n_compare size", n_compare)
+                            if self.global_steps == 1:
+                                print("batch size", batch.batch.batch_size[0])
+                                print("judge_batch size", judge_batch.batch.batch_size[0])
+                                print("n_rollouts size", n_rollouts)
+                                print("n_compare size", n_compare)
 
-                        judge_batch.meta_info["validate"] = True
-                        judge_output = self.actor_rollout_wg.generate_sequences(judge_batch)
-                        judge_responses = self.tokenizer.batch_decode(judge_output.batch["responses"], skip_special_tokens=True)
-                        # print("judge_responses", judge_responses[0])
+                            judge_batch.meta_info["validate"] = True
+                            judge_output = self.actor_rollout_wg.generate_sequences(judge_batch)
+                            judge_responses = self.tokenizer.batch_decode(judge_output.batch["responses"], skip_special_tokens=True)
+                            # print("judge_responses", judge_responses[0])
 
-                        batch_size = list(range(batch.batch.batch_size[0]))
-                        pairwise_chunks = [batch_size[i:i+n_rollouts] for i in range(0, len(batch_size), n_rollouts)]
+                            batch_size = list(range(batch.batch.batch_size[0]))
+                            pairwise_chunks = [batch_size[i:i+n_rollouts] for i in range(0, len(batch_size), n_rollouts)]
 
-                        pairwise_idx = []
-                        for chunk in pairwise_chunks:
-                            for i in chunk:
-                                _chunk = [j for j in chunk if j != i]
-                                n_compare = min(n_compare, len(_chunk))
-                                pairwise_idx.extend([(i,j) for j in random.sample(_chunk, n_compare)])
+                            pairwise_idx = []
+                            for chunk in pairwise_chunks:
+                                for i in chunk:
+                                    _chunk = [j for j in chunk if j != i]
+                                    n_compare = min(n_compare, len(_chunk))
+                                    pairwise_idx.extend([(i,j) for j in random.sample(_chunk, n_compare)])
 
-                        response_idx = {}
-                        _idx = 0
-                        for (i, j), response in zip(pairwise_idx, judge_responses):
-                            winning_response = extract_boxed_content(response)
-                            if winning_response == "A":
-                                score = 1.0
-                            elif winning_response == "B":
-                                score = -1.0
-                            else:
-                                score = 0.0
-                            if i in response_idx:
-                                response_idx[i].append(score)
-                            else:
-                                response_idx[i] = [score]
+                            response_idx = {}
+                            _idx = 0
+                            for (i, j), response in zip(pairwise_idx, judge_responses):
+                                winning_response = extract_boxed_content(response)
+                                if winning_response == "A":
+                                    score = 1.0
+                                elif winning_response == "B":
+                                    score = -1.0
+                                else:
+                                    score = 0.0
+                                if i in response_idx:
+                                    response_idx[i].append(score)
+                                else:
+                                    response_idx[i] = [score]
 
-                            # if (_idx == 0) and (score == 1.0):
-                            #     print("response", response)
-                            #     print("winning_response", winning_response)
-                            #     _idx = 1
+                            response_scores = torch.tensor([response_idx[i] for i in range(len(response_idx))], dtype=torch.float32).sum(dim=-1)
+                            token_level_scores = _expand_to_token_level(batch, response_scores)
+                            reward_tensor = token_level_scores.to("cpu")
+                        else:
 
-                        # print("response_idx", response_idx)
-                        # response_scores = torch.tensor([sum(response_idx[i])/len(response_idx[i]) for i in range(len(response_idx))])
-                        response_scores = torch.tensor([response_idx[i] for i in range(len(response_idx))], dtype=torch.float32).sum(dim=-1)
-                        print("response_scores", response_scores.sum())
-                        # print("response_scores", response_scores.sum(dim=-1).shape)
-                        token_level_scores = _expand_to_token_level(batch, response_scores)
-                        # reward_tensor = DataProto.from_dict(tensors={"rm_scores": token_level_scores})
-                        reward_tensor = token_level_scores.to("cpu")
-                        # batch = batch.union(reward_tensor)
+                            tgt_lang_code = self.config.actor_rollout_ref.rollout.tgt_lang_code
+                            tgt_lang_name = self.config.actor_rollout_ref.rollout.tgt_lang_name
+                            language_system_message += f"If the response is in {tgt_lang_name}, output \"{tgt_lang_code}\"."
+                            judge_batch = self._switch_chat_template(
+                                batch,
+                                n_rollouts=None,
+                                n_compare=None,
+                                system_message=language_system_message,
+                                )
+                            
+                            judge_batch.meta_info["validate"] = True
+                            judge_output = self.actor_rollout_wg.generate_sequences(judge_batch)
+                            judge_responses = self.tokenizer.batch_decode(judge_output.batch["responses"], skip_special_tokens=True)
 
-                        # if self.config.reward_model.launch_reward_fn_async:
-                        #     future_reward = compute_reward_async.remote(batch, self.config, self.tokenizer)
-                        # else:
-                        #     print("compute reward")
-                        #     # reward_tensor, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                        #     _, reward_extra_infos_dict = compute_reward(batch, self.reward_fn)
-                        #     print("reward_extra_infos_dict", reward_extra_infos_dict)
+                            response_list = []
+                            for response in judge_responses:
+                                lang_response = extract_boxed_content(response)
+                                if lang_response == tgt_lang_code:
+                                    score = 1.0
+                                else:
+                                    score = 0.0
+                                response_list.append(score)
+
+                            response_scores = torch.tensor(response_list, dtype=torch.float32).sum(dim=-1)
+                            token_level_scores = _expand_to_token_level(batch, response_scores)
+                            reward_tensor = token_level_scores.to("cpu")
+                            reward_tensor_from_fn, _ = compute_reward(batch, self.reward_fn)
+                            reward_tensor += reward_tensor_from_fn
 
                     # recompute old_log_probs
                     with marked_timer("old_log_prob", timing_raw, color="blue"):
