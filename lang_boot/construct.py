@@ -103,16 +103,10 @@ def construct_dataframe(
     else:
         query_source = "translated:queries"
 
-    lang_prompt_functions = {
+    prompt_functions = {
         f"{lang}_reason": TASK_LIST[f"{lang}_reason"].user_message,
-        f"{lang}_measure": lambda x: x,
+        f"en_reason": TASK_LIST[f"en_reason"].user_message,
     }
-
-    if lang != "en":
-        prompt_functions = {
-            f"en_reason": TASK_LIST[f"en_reason"].user_message,
-            **lang_prompt_functions
-        }
 
     query_lang = "en" if use_en else lang
     query_path = os.path.join(data_path, f"raw_traces/{task}:{query_lang}:{query_source}/")
@@ -188,58 +182,63 @@ def construct_dataframe(
         )
 
     # Post Processing
-    prompt_fn = prompt_functions[f"{lang}_reason"]
-    df = df[(df["input_selected"] != "None") & (df["output_selected"] != "None")]
-    df["input_selected"] = df.apply(
-        lambda row: prompt_fn(row["input_selected"]),
-        axis=1
-    )
-    df['input'] = df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
-    df['output'] = df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
-    df['messages'] = df.apply(lambda row: row['input'] + row['output'], axis=1)
-    df['data_source'] = "train_dataset"
-    df['raw_prompt'] = df.apply(
-        lambda row: system_message + [
-            {"role": "user", "content": row["input_selected"]},
-            ],
-        axis=1
-    )
+    # prompt_fn = prompt_functions[f"{lang}_reason"]
+    if response == "translated":
+        df = df[(df["input_selected"] != "None") & (df["output_selected"] != "None")]
+    else:
+        df = df[(df["eng_output_selected"] != "None")]
 
-    df["extra_info"] = df.apply(
-        lambda row: {
-            "task": "train_dataset",
-            "ground_truth": str(row["reward_model"]["ground_truth"]),
-            "use_lang": use_lang,
-            "use_accuracy": use_accuracy,
-            "lang": lang,
-        }, 
-        axis=1
-    )
+    dataset_df = pd.DataFrame()
+    for prompt_name, prompt_fn in prompt_functions.items():
+        prompt_df = df.copy()
+        prompt_df["input_selected"] = prompt_df.apply(
+            lambda row: prompt_fn(row["input_selected"]),
+            axis=1
+        )
+        prompt_df['input'] = prompt_df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
+        prompt_df['output'] = prompt_df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
+        prompt_df['messages'] = prompt_df.apply(lambda row: row['input'] + row['output'], axis=1)
+        prompt_df['data_source'] = "train_dataset"
+        prompt_df['raw_prompt'] = prompt_df.apply(
+            lambda row: system_message + [
+                {"role": "user", "content": row["input_selected"]},
+                ],
+            axis=1
+        )
+
+        prompt_df["extra_info"] = prompt_df.apply(
+            lambda row: {
+                "task": f"train_dataset/{prompt_name}",
+                "ground_truth": str(row["reward_model"]["ground_truth"]),
+                "use_lang": use_lang,
+                "use_accuracy": use_accuracy,
+                "lang": lang,
+            }, 
+            axis=1
+        )
+
+        dataset_df = pd.concat([dataset_df, prompt_df], ignore_index=True)
 
     # df = df[['input', 'output']]
     # df = df[['messages']]
     # Remove unsuccessful responses
-    df.sample(frac=1).reset_index(drop=True)
-    task_size = len(df)
+    dataset_df.sample(frac=1).reset_index(drop=True)
+    task_size = len(dataset_df)
     train_size = int(task_size * 0.8)
     valid_size = int(task_size * 0.1)
     test_size = int(task_size * 0.1)
-    if max_samples == -1:
-        train_df = df.iloc[:train_size]
-    else:
-        train_df = df.iloc[:min(train_size, max_samples)]
-    valid_df = df.iloc[train_size:train_size + valid_size]
-    test_df = df.iloc[-test_size-1:]
+
+    train_df = dataset_df.iloc[:train_size]
+    valid_df = dataset_df.iloc[train_size:train_size + valid_size]
+    test_df = dataset_df.iloc[-test_size-1:]
 
     print(train_df.head())
 
-    for task_name in ["math500", "mgsm", "global_mmlu", "belebele", "mt_aime2024", "mt_math100"]:
+    for task_name in ["math500", "mgsm", "global_mmlu", "belebele", "mt_math100"]:
         if task_name == "math500":
             full_task_name = task_name
-            task_lang = "en"
         else:
             full_task_name = f'{task_name}_{lang}'
-            task_lang = lang
 
         eval_dataset = TASK_LIST[full_task_name]()
         x, y = zip(*[eval_dataset.dataset.__getitem__(idx) for idx in range(eval_dataset.dataset.__len__())])
@@ -249,6 +248,8 @@ def construct_dataframe(
             if not prompt_name.startswith("en_"):
                 _, *prompt_name = prompt_name.split("_")
                 prompt_name = "_".join(["x"]+prompt_name)
+
+            task_lang = prompt_name.split("_")[-1]
 
             eval_df = pd.DataFrame()
             eval_df['input_selected'] = [prompt_fn(_x) for _x in x]
@@ -277,9 +278,9 @@ def construct_dataframe(
             test_df = pd.concat([test_df, eval_df], ignore_index=True)
 
     if use_en:
-        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:en_generated:{max_samples}/")
+        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:en_generated/")
     else:
-        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:{response}:{max_samples}/")
+        output_path = os.path.join(data_path, f"prep_traces/{task}:{lang}:{response}/")
     os.makedirs(output_path, exist_ok=True)
     train_df.to_parquet(os.path.join(output_path, "train.parquet"))
     valid_df.to_parquet(os.path.join(output_path, "valid.parquet"))
