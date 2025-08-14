@@ -2,14 +2,13 @@
 #SBATCH --job-name=grpo
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=general
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:L40S:8
 #SBATCH --nodes=1
 #SBATCH --time=2-00:00:00
 #SBATCH --mem=512G
 #SBATCH --cpus-per-task=128
 #SBATCH --ntasks-per-node=1
-#SBATCH --overcommit
 #SBATCH --exclude=babel-9-3,babel-4-25,babel-14-29,babel-12-9,babel-13-1
 
 . ./lang_boot/config/.env
