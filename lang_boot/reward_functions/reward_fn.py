@@ -36,7 +36,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
             ans = get_boxed_answer(solution_str)
         except:
             ans = solution_str
-        
+
         if use_random:
             ans_score = random.random() >= 0.5
         else:
@@ -68,6 +68,7 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
         "repetition_penalty": penalty,
         "use_lang": use_lang,
         "use_penalty": use_penalty,
+        "use_random": use_random,
         "gold": ground_truth,
     }
 
