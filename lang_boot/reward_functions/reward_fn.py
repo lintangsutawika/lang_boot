@@ -71,14 +71,14 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
         "gold": ground_truth,
     }
 
-def compute_score_reward_corr(data_source, solution_str, ground_truth, extra_info):
+def compute_score_reward_acc(data_source, solution_str, ground_truth, extra_info):
     return compute_score(
         data_source, solution_str, ground_truth, extra_info,
         use_lang=False,
         use_penalty=True,
     )
 
-def compute_score_reward_lang_fn(data_source, solution_str, ground_truth, extra_info):
+def compute_score_reward_acc_and_lang_fn(data_source, solution_str, ground_truth, extra_info):
     return compute_score(
         data_source, solution_str, ground_truth, extra_info,
         use_lang=True,
