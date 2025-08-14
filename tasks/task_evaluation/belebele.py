@@ -9,7 +9,7 @@ from yeval.response.math_responses import get_boxed_answer
 path = os.path.dirname(__file__)
 
 def input_text(x):
-    return f"{x['flores_passage']}\n{x['question']}\n\nA) {x['mc_answer1']}\nB) {x['mc_answer2']}\nC) {x['mc_answer3']}\nD) {x['mc_answer4']}\n\nAnswer: "
+    return f"{x['flores_passage']}\n{x['question']}\n\nA) {x['mc_answer1']}\nB) {x['mc_answer2']}\nC) {x['mc_answer3']}\nD) {x['mc_answer4']}\n\n"
 
 def output_text(x):
     label = int(x["correct_answer_num"])

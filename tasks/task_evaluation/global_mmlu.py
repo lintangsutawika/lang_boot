@@ -21,7 +21,7 @@ path = os.path.dirname(__file__)
 
 def input_text(x):
     # return f"{x['question']}\nA){x['option_a']}\nB){x['option_b']}\nC){x['option_c']}\nD){x['option_d']}\n"
-    return f"{x['question']}\n\nA) {x['option_a']}\nB) {x['option_b']}\nC) {x['option_c']}\nD) {x['option_d']}\n\nAnswer: "
+    return f"{x['question']}\n\nA) {x['option_a']}\nB) {x['option_b']}\nC) {x['option_c']}\nD) {x['option_d']}\n\n"
 
 def output_text(x):
     label = x["answer"].lower()
