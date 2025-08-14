@@ -151,7 +151,7 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
 
         system_message += "\nThink step by step before answering and output your answer in \\boxed{}."
 
-        if (n_rollouts is None) and (n_compare is None):
+        if (n_rollouts is not None) and (n_compare is not None):
             range_bs = list(range(data.batch.batch_size[0]))
             pairwise_chunks = [range_bs[i:i+n_rollouts] for i in range(0, len(range_bs), n_rollouts)]
 
