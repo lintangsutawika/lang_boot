@@ -108,7 +108,7 @@ python -m lang_boot.main_grpo \
     actor_rollout_ref.ref.strategy=fsdp2 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='lang_boot' \
+    trainer.project_name='lbr-lang_boot' \
     trainer.experiment_name=${RUN_NAME} \
     trainer.n_gpus_per_node=${NUM_GPUS} \
     trainer.nnodes=1 \
