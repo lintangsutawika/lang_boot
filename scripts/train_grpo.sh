@@ -62,8 +62,8 @@ LOGPROB_BS=32
 PPO_BS=16
 
 python -m lang_boot.main_grpo \
-    +trainer.wandb.language=${LANGUAGE} \
-    +trainer.wandb.task=${TASK} \
+    +trainer.lang_code=${LANGUAGE} \
+    +trainer.task=${TASK} \
     +trainer.use_judge=${USE_JUDGE} \
     +trainer.use_gcs=${USE_GCS} \
     +trainer.gcs_project=${GCS_PROJECT} \
@@ -102,6 +102,7 @@ python -m lang_boot.main_grpo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=${N_ROLLOUTS} \
+    +actor_rollout_ref.rollout.compare=${N_ROLLOUTS} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${LOGPROB_BS} \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.strategy=fsdp2 \
