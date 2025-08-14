@@ -106,6 +106,21 @@ class CustomRayPPOTrainer(RayPPOTrainer):
                 project=self.config.trainer.gcs_project,
                 token=self.config.trainer.gcs_token
             )
+
+            for file_name in os.listdir(self.config.trainer.validation_data_dir):
+                fs.put(
+                    os.path.join(self.config.trainer.validation_data_dir, file_name),
+                    os.path.join(self.config.trainer.gcs_path, ""),
+                    recursive=True
+                )
+
+                local_global_step_folder = os.path.join(
+                    self.config.trainer.validation_data_dir, file_name
+                )
+                
+                shutil.rmtree(local_global_step_folder, ignore_errors=True)
+
+
             for file_name in [f"global_step_{self.global_steps}", "latest_checkpointed_iteration.txt"]:
                 fs.put(
                     os.path.join(self.config.trainer.default_local_dir, file_name),
