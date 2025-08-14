@@ -1,6 +1,6 @@
 import os
 import re
-
+import random
 from yeval.metrics import math_eval
 from yeval.response.math_responses import get_boxed_answer
 from lang_boot.utils import math_eval_with_postprocessing, get_lang_score
@@ -21,9 +21,10 @@ eval_fn = {
     **{task: TASK_LIST[f"{task}_en"]().eval for task in eval_tasks}
 }
 
-def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=True, use_penalty=True):
+def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=True, use_penalty=True, use_random=False):
 
-    if extra_info["task"] == "train_dataset":
+    task_eval = extra_info["task"].split("/")[0]
+    if task_eval == "train_dataset":
         try:
             gold = get_boxed_answer(ground_truth)
             if gold == "None":
@@ -36,17 +37,19 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
         except:
             ans = solution_str
         
-        ans_score = math_eval(ans, gold)
+        if use_random:
+            ans_score = random.random() >= 0.5
+        else:
+            ans_score = math_eval(ans, gold)
     else:
-        task_eval = extra_info["task"].split("/")[0]
         ans_score = eval_fn[task_eval](solution_str, ground_truth)["accuracy"]
+
+    reward = ans_score
 
     lang = extra_info["lang"]
     _, lang_score = get_lang_score(solution_str, lang=lang)
     if use_lang and (lang != "en"):
-        reward = ans_score * lang_score
-    else:
-        reward = ans_score
+        reward += lang_score
 
     penalty = 0
     N_gram_sizes = [2, 3, 4, 5]
@@ -68,9 +71,24 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
         "gold": ground_truth,
     }
 
-def compute_score_no_lang_no_penalty(data_source, solution_str, ground_truth, extra_info):
+def compute_score_reward_corr(data_source, solution_str, ground_truth, extra_info):
+    return compute_score(
+        data_source, solution_str, ground_truth, extra_info,
+        use_lang=False,
+        use_penalty=True,
+    )
+
+def compute_score_reward_lang_fn(data_source, solution_str, ground_truth, extra_info):
+    return compute_score(
+        data_source, solution_str, ground_truth, extra_info,
+        use_lang=True,
+        use_penalty=True,
+    )
+
+def compute_score_reward_rand(data_source, solution_str, ground_truth, extra_info):
     return compute_score(
         data_source, solution_str, ground_truth, extra_info,
         use_lang=False,
         use_penalty=False,
+        use_random=True,
     )
