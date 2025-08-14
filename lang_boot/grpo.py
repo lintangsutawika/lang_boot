@@ -88,13 +88,13 @@ Decide which is the best response based on the following criteria: \
 3. Does the response serve as a good translation of the English response? \
 4. Does the response follow the same logical steps as the English response? \
 Answer with "A" if the first response is better \
-and "B" if the second response is better.
+and "B" if the second response is better. \
 """
 
 language_system_message = """\
 You are a helpful assistant. You will be given a response and classify what language it is in. \
 If the response is in English, output "en". \
-If the response is in Chinese, output "zh".
+If the response is in Chinese, output "zh". \
 """
 
 
@@ -437,12 +437,11 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
 
                             tgt_lang_code = self.config.trainer.lang_code
                             tgt_lang_name = LANGUAGE_CODE[tgt_lang_code]
-                            language_system_message += f"If the response is in {tgt_lang_name}, output \"{tgt_lang_code}\"."
                             judge_batch = self._switch_chat_template(
                                 batch,
                                 n_rollouts=None,
                                 n_compare=None,
-                                system_message=language_system_message,
+                                system_message=language_system_message+f"If the response is in {tgt_lang_name}, output \"{tgt_lang_code}\".",
                                 )
                             
                             judge_batch.meta_info["validate"] = True
