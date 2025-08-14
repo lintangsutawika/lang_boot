@@ -70,6 +70,15 @@ from verl.trainer.ppo.ray_trainer import (
     compute_response_mask,
 )
 
+LANGUAGE_CODE = {
+    "en": "English",
+    "zh": "Chinese",
+    "es": "Spanish",
+    "sw": "Swahili",
+    "id": "Indonesian",
+    "ja": "Japanese",
+}
+
 pairwise_system_message = """\
 You are a helpful assistant. You will be given two responses to compare. \
 Based on the query and the English response, \
@@ -375,7 +384,7 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
 
                             return token_level_scores
                         
-                        if self.config.use_pairwise_judge:
+                        if self.config.trainer.use_privileged:
                             judge_batch = self._switch_chat_template(
                                 batch,
                                 n_rollouts=self.config.actor_rollout_ref.rollout.n,
@@ -426,8 +435,8 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                             reward_tensor = token_level_scores.to("cpu")
                         else:
 
-                            tgt_lang_code = self.config.actor_rollout_ref.rollout.tgt_lang_code
-                            tgt_lang_name = self.config.actor_rollout_ref.rollout.tgt_lang_name
+                            tgt_lang_code = self.config.trainer.lang_code
+                            tgt_lang_name = LANGUAGE_CODE[tgt_lang_code]
                             language_system_message += f"If the response is in {tgt_lang_name}, output \"{tgt_lang_code}\"."
                             judge_batch = self._switch_chat_template(
                                 batch,
