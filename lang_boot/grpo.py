@@ -150,9 +150,9 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
         system_message += "\nThink step by step before answering and output your answer in \\boxed{}."
+        range_bs = list(range(data.batch.batch_size[0]))
 
         if (n_rollouts is not None) and (n_compare is not None):
-            range_bs = list(range(data.batch.batch_size[0]))
             pairwise_chunks = [range_bs[i:i+n_rollouts] for i in range(0, len(range_bs), n_rollouts)]
 
             pairwise_idx = []
