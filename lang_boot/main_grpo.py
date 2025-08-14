@@ -199,7 +199,7 @@ class TaskRunner:
                 latest_checkpointed_iteration = None
                 print("No previous checkpoint found, starting from scratch.")
 
-        if config.trainer.get("privileged", False):
+        if config.trainer.get("use_judge", False):
             print("Training with GRPO + privileged information.")
             # Initialize the PPO trainer.
             trainer = RayGRPOTrainer(
