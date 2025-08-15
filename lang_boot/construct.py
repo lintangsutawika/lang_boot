@@ -189,35 +189,36 @@ def construct_dataframe(
         df = df[(df["eng_output_selected"] != "None")]
 
     dataset_df = pd.DataFrame()
-    for prompt_name, prompt_fn in prompt_functions.items():
-        prompt_df = df.copy()
-        prompt_df["input_selected"] = prompt_df.apply(
-            lambda row: prompt_fn(row["input_selected"]),
-            axis=1
-        )
-        prompt_df['input'] = prompt_df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
-        prompt_df['output'] = prompt_df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
-        prompt_df['messages'] = prompt_df.apply(lambda row: row['input'] + row['output'], axis=1)
-        prompt_df['data_source'] = "train_dataset"
-        prompt_df['raw_prompt'] = prompt_df.apply(
-            lambda row: system_message + [
-                {"role": "user", "content": row["input_selected"]},
-                ],
-            axis=1
-        )
+    prompt_name = f"{lang}_reason"
+    prompt_fn = prompt_functions[prompt_name]
+    prompt_df = df.copy()
+    prompt_df["input_selected"] = prompt_df.apply(
+        lambda row: prompt_fn(row["input_selected"]),
+        axis=1
+    )
+    prompt_df['input'] = prompt_df.apply(lambda row: system_message + [{"role": "user", "content": row["input_selected"]}], axis=1)
+    prompt_df['output'] = prompt_df.apply(lambda row: [{"role": "assistant", "content": row["output_selected"]}], axis=1)
+    prompt_df['messages'] = prompt_df.apply(lambda row: row['input'] + row['output'], axis=1)
+    prompt_df['data_source'] = "train_dataset"
+    prompt_df['raw_prompt'] = prompt_df.apply(
+        lambda row: system_message + [
+            {"role": "user", "content": row["input_selected"]},
+            ],
+        axis=1
+    )
 
-        prompt_df["extra_info"] = prompt_df.apply(
-            lambda row: {
-                "task": f"train_dataset/{prompt_name}",
-                "ground_truth": str(row["reward_model"]["ground_truth"]),
-                "use_lang": use_lang,
-                "use_accuracy": use_accuracy,
-                "lang": lang,
-            }, 
-            axis=1
-        )
+    prompt_df["extra_info"] = prompt_df.apply(
+        lambda row: {
+            "task": f"train_dataset/{prompt_name}",
+            "ground_truth": str(row["reward_model"]["ground_truth"]),
+            "use_lang": use_lang,
+            "use_accuracy": use_accuracy,
+            "lang": lang,
+        }, 
+        axis=1
+    )
 
-        dataset_df = pd.concat([dataset_df, prompt_df], ignore_index=True)
+    dataset_df = pd.concat([dataset_df, prompt_df], ignore_index=True)
 
     # df = df[['input', 'output']]
     # df = df[['messages']]
@@ -245,11 +246,10 @@ def construct_dataframe(
 
         for prompt_name, prompt_fn in prompt_functions.items():
             print(f"{task_name}/{prompt_name}")
+            task_lang = prompt_name.split("_")[0]
             if not prompt_name.startswith("en_"):
                 _, *prompt_name = prompt_name.split("_")
                 prompt_name = "_".join(["x"]+prompt_name)
-
-            task_lang = prompt_name.split("_")[-1]
 
             eval_df = pd.DataFrame()
             eval_df['input_selected'] = [prompt_fn(_x) for _x in x]
