@@ -21,7 +21,7 @@ eval_fn = {
     **{task: TASK_LIST[f"{task}_en"]().eval for task in eval_tasks}
 }
 
-def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=False, use_penalty=False, use_random=False):
+def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=False, use_penalty=False, use_random=False, use_multiply=False):
 
     task_eval = extra_info["task"].split("/")[0]
     if task_eval == "train_dataset":
@@ -49,7 +49,10 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
     lang = extra_info["lang"]
     _, lang_score = get_lang_score(solution_str, lang=lang)
     if use_lang and (lang != "en"):
-        reward += lang_score
+        if use_multiply:
+            reward *= lang_score
+        else:
+            reward += lang_score
 
     penalty = 0
     N_gram_sizes = [2, 3, 4, 5]
@@ -79,11 +82,19 @@ def compute_score_reward_acc(data_source, solution_str, ground_truth, extra_info
         use_penalty=True,
     )
 
-def compute_score_reward_acc_and_lang_fn(data_source, solution_str, ground_truth, extra_info):
+def compute_score_reward_acc_add_lang_fn(data_source, solution_str, ground_truth, extra_info):
     return compute_score(
         data_source, solution_str, ground_truth, extra_info,
         use_lang=True,
         use_penalty=True,
+    )
+
+def compute_score_reward_acc_mult_lang_fn(data_source, solution_str, ground_truth, extra_info):
+    return compute_score(
+        data_source, solution_str, ground_truth, extra_info,
+        use_lang=True,
+        use_penalty=True,
+        use_multiply=True,
     )
 
 def compute_score_reward_rand(data_source, solution_str, ground_truth, extra_info):
