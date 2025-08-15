@@ -21,7 +21,7 @@ eval_fn = {
     **{task: TASK_LIST[f"{task}_en"]().eval for task in eval_tasks}
 }
 
-def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=True, use_penalty=True, use_random=False):
+def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_lang=False, use_penalty=False, use_random=False):
 
     task_eval = extra_info["task"].split("/")[0]
     if task_eval == "train_dataset":
