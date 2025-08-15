@@ -469,10 +469,9 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                             response_list = []
                             for response in judge_responses:
                                 lang_response = extract_boxed_content(response)
-                                if lang_response == tgt_lang_code:
-                                    score = 1.0
-                                else:
-                                    score = 0.0
+                                if lang_response is None:
+                                    lang_response = response.strip()
+                                score = 1.0 if lang_response == tgt_lang_code else 0
                                 response_list.append(score)
 
                             response_scores = torch.tensor(response_list, dtype=torch.float32).sum(dim=-1)
