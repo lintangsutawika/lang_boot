@@ -2,14 +2,14 @@
 #SBATCH --job-name=grpo
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=preempt
+#SBATCH --partition=general
 #SBATCH --gres=gpu:L40S:8
 #SBATCH --nodes=1
-#SBATCH --time=2-00:00:00
+#SBATCH --time=1-00:00:00
 #SBATCH --mem=512G
-#SBATCH --cpus-per-task=128
+#SBATCH --cpus-per-task=64
 #SBATCH --ntasks-per-node=1
-#SBATCH --exclude=babel-9-3,babel-4-25,babel-14-29,babel-12-9,babel-13-1
+#SBATCH --exclude=babel-9-3,babel-4-25,babel-14-29,babel-12-9,babel-13-1,babel-7-1
 
 . ./lang_boot/config/.env
 
@@ -22,7 +22,7 @@
 #   -s /scratch/lsutawik/checkpoints/ \
 #   -f compute_score_no_lang_no_penalty
 
-while getopts ":m:l:n:t:d:s:f:r:v:g:e:j:p:" opt; do
+while getopts ":m:l:n:t:d:s:f:r:v:g:e:j:p:w:" opt; do
   case ${opt} in
     m ) MODEL=$OPTARG;;
     l ) LANGUAGE=$OPTARG;;
@@ -37,6 +37,7 @@ while getopts ":m:l:n:t:d:s:f:r:v:g:e:j:p:" opt; do
     e ) SOURCE_TYPE=$OPTARG;;
     j ) USE_JUDGE=$OPTARG;;
     p ) USE_PRIVILEGED=$OPTARG;;
+    w ) USE_REWARD_FN=$OPTARG;;
     # \? ) echo "Usage: cmd [-u] [-p]";;
   esac
 done
@@ -45,6 +46,7 @@ MODEL_ALIAS=$(echo $MODEL | sed 's/\//-/g')
 # Get number of GPUs available
 USE_JUDGE="${USE_JUDGE:-False}"
 USE_PRIVILEGED="${USE_PRIVILEGED:-False}"
+USE_REWARD_FN="${USE_REWARD_FN:-False}"
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 USE_GCS="${USE_GCS:-False}"
 N_ROLLOUTS="${N_ROLLOUTS:-8}"
@@ -60,14 +62,17 @@ FULL_SAVE_PATH=${SAVE_MODEL_PATH}${RUN_NAME}
 LOGPROB_BS=32
 PPO_BS=16
 
+echo $RUN_NAME
+
 python -m lang_boot.main_grpo \
     +trainer.lang_code=${LANGUAGE} \
     +trainer.task=${TASK} \
-    +trainer.use_judge=${USE_JUDGE} \
     +trainer.use_gcs=${USE_GCS} \
     +trainer.gcs_project=${GCS_PROJECT} \
     +trainer.gcs_token=${GCS_TOKEN} \
     +trainer.gcs_path=${GCS_PATH}${RUN_NAME} \
+    +trainer.use_judge=${USE_JUDGE} \
+    +trainer.use_reward_fn=${USE_REWARD_FN} \
     +trainer.use_privileged=${USE_PRIVILEGED} \
     algorithm.norm_adv_by_std_in_grpo=False \
     algorithm.adv_estimator=grpo \
