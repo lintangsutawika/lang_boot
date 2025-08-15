@@ -447,7 +447,7 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                                 else:
                                     response_idx[i] = [score]
 
-                            response_scores = torch.tensor([response_idx[i] for i in range(len(response_idx))], dtype=torch.float32).sum(dim=-1)
+                            response_scores = torch.tensor([response_idx[i] for i in range(len(response_idx))], dtype=torch.float32).mean(dim=-1)
                             token_level_scores = _expand_to_token_level(batch, response_scores)
                             reward_tensor = token_level_scores.to("cpu")
                         else:
@@ -474,7 +474,7 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                                 score = 1.0 if lang_response == tgt_lang_code else 0
                                 response_list.append(score)
 
-                            response_scores = torch.tensor(response_list, dtype=torch.float32).sum(dim=-1)
+                            response_scores = torch.tensor(response_list, dtype=torch.float32)
                             token_level_scores = _expand_to_token_level(batch, response_scores)
                             reward_tensor = token_level_scores.to("cpu")
 
