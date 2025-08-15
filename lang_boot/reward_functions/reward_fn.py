@@ -37,14 +37,14 @@ def compute_score(data_source, solution_str, ground_truth, extra_info=None, use_
         except:
             ans = solution_str
 
-        if use_random:
-            ans_score = random.random() >= 0.5
-        else:
-            ans_score = math_eval(ans, gold)
+        ans_score = math_eval(ans, gold)
     else:
         ans_score = eval_fn[task_eval](solution_str, ground_truth)["accuracy"]
 
-    reward = ans_score
+    if use_random:
+        reward = random.random() >= 0.5
+    else:
+        reward = ans_score
 
     lang = extra_info["lang"]
     _, lang_score = get_lang_score(solution_str, lang=lang)
