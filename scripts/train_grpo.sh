@@ -2,7 +2,7 @@
 #SBATCH --job-name=grpo
 #SBATCH --output=logs/%j.out
 #SBATCH --error=logs/%j.out
-#SBATCH --partition=general
+#SBATCH --partition=preempt
 #SBATCH --gres=gpu:L40S:8
 #SBATCH --nodes=1
 #SBATCH --time=1-00:00:00
@@ -118,10 +118,10 @@ python -m lang_boot.main_grpo \
     trainer.nnodes=1 \
     trainer.val_before_train=True \
     trainer.balance_batch=False \
-    trainer.save_freq=25 \
-    trainer.test_freq=5 \
+    trainer.save_freq=50 \
+    trainer.test_freq=25 \
     trainer.total_epochs=20 \
-    trainer.total_training_steps=255 \
+    trainer.total_training_steps=505 \
     trainer.default_local_dir=${FULL_SAVE_PATH}/checkpoints/ \
     trainer.validation_data_dir=${FULL_SAVE_PATH}/evaluations/ \
     custom_reward_function.path=lang_boot/lang_boot/reward_functions/reward_fn.py \
