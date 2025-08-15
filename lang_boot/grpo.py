@@ -146,7 +146,14 @@ class CustomRayPPOTrainer(RayPPOTrainer):
 
 class RayGRPOTrainer(CustomRayPPOTrainer):
 
-    def _switch_chat_template(self, data: DataProto, n_rollouts=None, n_compare=None, system_message=None):
+    def _switch_chat_template(
+        self,
+        data: DataProto,
+        n_rollouts=None,
+        n_compare=None,
+        system_message=None,
+        check_for_boxed_content=False
+    ):
         src_max_length = data.batch["attention_mask"].shape[-1]
 
         system_message += "\nThink step by step before answering and output your answer in \\boxed{}."
@@ -181,6 +188,11 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                     # remove bos and eos
                     response = response.replace(self.tokenizer.eos_token, "")
 
+                    if check_for_boxed_content:
+                        box_content = extract_boxed_content(response)
+                        if box_content is not None:
+                            response = response.replace(f"\\boxed{{{box_content}}}", box_content)
+
                     response_dict[idx_resp] = response
 
                 chat_list.append([
@@ -201,6 +213,11 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                 response = self.tokenizer.decode(valid_response_ids)
                 # remove bos and eos
                 response = response.replace(self.tokenizer.eos_token, "")
+
+                if check_for_boxed_content:
+                    box_content = extract_boxed_content(response)
+                    if box_content is not None:
+                        response = response.replace(f"\\boxed{{{box_content}}}", box_content)
 
                 chat_list.append([
                     {"role": "system", "content": system_message},
@@ -384,7 +401,7 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
 
                             return token_level_scores
                         
-                        if self.config.trainer.use_privileged:
+                        if self.config.trainer.get("use_privileged", False):
                             judge_batch = self._switch_chat_template(
                                 batch,
                                 n_rollouts=self.config.actor_rollout_ref.rollout.n,
@@ -442,8 +459,9 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                                 n_rollouts=None,
                                 n_compare=None,
                                 system_message=language_system_message+f"If the response is in {tgt_lang_name}, output \"{tgt_lang_code}\".",
+                                check_for_boxed_content=True,
                                 )
-                            
+
                             judge_batch.meta_info["validate"] = True
                             judge_output = self.actor_rollout_wg.generate_sequences(judge_batch)
                             judge_responses = self.tokenizer.batch_decode(judge_output.batch["responses"], skip_special_tokens=True)
@@ -460,6 +478,8 @@ class RayGRPOTrainer(CustomRayPPOTrainer):
                             response_scores = torch.tensor(response_list, dtype=torch.float32).sum(dim=-1)
                             token_level_scores = _expand_to_token_level(batch, response_scores)
                             reward_tensor = token_level_scores.to("cpu")
+
+                        if self.config.trainer.get("use_reward_fn", False):
                             reward_tensor_from_fn, _ = compute_reward(batch, self.reward_fn)
                             reward_tensor += reward_tensor_from_fn
 
